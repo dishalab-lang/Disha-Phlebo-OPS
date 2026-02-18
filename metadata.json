@@ -1,0 +1,9 @@
+{
+  "name": "Disha Diagnostics Phlebotomy Suite",
+  "description": "A comprehensive management system for phlebotomists to handle collection calls, track TAT, calculate incentives, and integrate with lab reception with geofencing support.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera",
+    "microphone"
+  ]
+}
