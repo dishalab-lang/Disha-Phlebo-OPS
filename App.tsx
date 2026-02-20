@@ -147,6 +147,7 @@ const App: React.FC = () => {
             paymentMode: c.billing.paymentMode,
             timestamp: now,
             isPremiumIncentive: !!c.isPriority,
+            voiceNote: c.voiceNote,
             status: 'COMPLETED'
           };
           recordMetrics(metrics);

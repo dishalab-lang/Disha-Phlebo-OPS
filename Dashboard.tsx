@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { CollectionCall, CallType, CallStatus, DiagnosticTest, PaymentMode, SystemConfig, Phlebotomist, DiagnosticLab, ConvenienceTier, Hospital } from './types';
-import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircle2, FlaskConical, Send, Radar, Share2, FileText, Key, Info, Banknote, ShieldCheck, Map as MapIcon, ChevronRight, PlusCircle } from 'lucide-react';
+import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircle2, FlaskConical, Send, Radar, Share2, FileText, Key, Info, Banknote, ShieldCheck, Map as MapIcon, ChevronRight, PlusCircle, Volume2 } from 'lucide-react';
 import { TEST_CATALOG } from './constants';
 import { RadarMap } from './AdminPanel';
 import { calculateDistance } from './geoUtils';
@@ -198,9 +198,20 @@ const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, p
                       </span>
                     </td>
                     <td className="px-6 py-6 text-center">
-                      <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 'bg-brand-purple/5 text-brand-purple'}`}>
-                        {call.status}
-                      </span>
+                      <div className="flex items-center justify-center gap-2">
+                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 'bg-brand-purple/5 text-brand-purple'}`}>
+                          {call.status}
+                        </span>
+                        {call.voiceNote && (
+                          <button 
+                            onClick={() => new Audio(call.voiceNote).play()}
+                            className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
+                            title="Play Voice Note"
+                          >
+                            <Volume2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -95,6 +95,7 @@ export interface CollectionCall {
   visitPhoto?: string;
   samplePhoto?: string;
   handoverPhoto?: string;
+  voiceNote?: string;
   rejectionReason?: string;
 }
 
@@ -162,5 +163,6 @@ export interface CallMetrics {
   paymentMode: PaymentMode;
   timestamp: number;
   isPremiumIncentive: boolean;
+  voiceNote?: string;
   status: 'COMPLETED' | 'REJECTED';
 }

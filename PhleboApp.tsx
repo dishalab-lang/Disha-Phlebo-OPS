@@ -6,7 +6,8 @@ import {
   Wallet, QrCode, Camera, FlaskConical, X, Key, Phone, 
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
   UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight,
-  Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink
+  Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink,
+  Mic, Square, Play, Volume2
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
 import { TEST_CATALOG } from './constants';
@@ -39,6 +40,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [photoType, setPhotoType] = useState<'VISIT' | 'SAMPLE' | 'HANDOVER' | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<{ url: string; label: string } | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Appointment Booking State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
@@ -176,6 +180,52 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     fileInputRef.current?.click();
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Audio = reader.result as string;
+          if (activeCall) {
+            onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { voiceNote: base64Audio });
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("Microphone access denied or not available.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const playVoiceNote = (url: string) => {
+    const audio = new Audio(url);
+    audio.play();
+  };
+
   const upiId = "dishalab@okicici";
   const upiUrl = activeCall ? `upi://pay?pa=${upiId}&pn=Disha%20Diagnostics&am=${activeCall.billing.totalAmount}&cu=INR` : "";
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
@@ -262,6 +312,33 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                     <ArtifactCard type="VISIT" label="Visit Photo" data={activeCall.visitPhoto} icon={Camera} />
                     <ArtifactCard type="SAMPLE" label="Vial/Sample" data={activeCall.samplePhoto} icon={FlaskConical} />
                     <ArtifactCard type="HANDOVER" label="Receipt" data={activeCall.handoverPhoto} icon={PackageCheck} />
+                 </div>
+
+                 <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isRecording ? 'bg-red-500 text-white animate-pulse' : activeCall.voiceNote ? 'bg-brand-green/10 text-brand-green' : 'bg-slate-200 text-slate-400'}`}>
+                          {isRecording ? <Square size={20} /> : activeCall.voiceNote ? <Volume2 size={20} /> : <Mic size={20} />}
+                       </div>
+                       <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Voice Context</p>
+                          <p className="text-xs font-black text-slate-700">
+                             {isRecording ? 'Recording Memo...' : activeCall.voiceNote ? 'Voice Note Attached' : 'Add Voice Memo'}
+                          </p>
+                       </div>
+                    </div>
+                    <div className="flex gap-2">
+                       {activeCall.voiceNote && !isRecording && (
+                          <button onClick={() => playVoiceNote(activeCall.voiceNote!)} className="bg-brand-purple text-white p-3 rounded-xl shadow-md active:scale-95 transition-all">
+                             <Play size={16} fill="currentColor" />
+                          </button>
+                       )}
+                       <button 
+                          onClick={isRecording ? stopRecording : startRecording} 
+                          className={`p-3 rounded-xl shadow-md active:scale-95 transition-all ${isRecording ? 'bg-red-500 text-white' : 'bg-white text-slate-600 border border-slate-100'}`}
+                       >
+                          {isRecording ? <Square size={16} /> : <Mic size={16} />}
+                       </button>
+                    </div>
                  </div>
                  
                  {activeCall.status === CallStatus.VISITING && (

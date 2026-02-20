@@ -7,7 +7,7 @@ import {
   CheckCircle2, MapPin, Plus, Building2, Search, Timer, Radar, 
   Activity, X, UserPlus, Phone, ShieldAlert, Send, Home, UserCheck, Lock, Unlock,
   Truck, Target, Locate, TrendingUp, Sparkles, UserCircle, AlertCircle, Fingerprint, Shield,
-  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon
+  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -280,6 +280,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                    <thead className="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                       <tr>
                         <th className="px-8 py-5">Personnel</th>
+                        <th className="px-8 py-5 text-center">Shift Roster</th>
                         <th className="px-8 py-5">Credential Node</th>
                         <th className="px-8 py-5">Assigned Hub</th>
                         <th className="px-8 py-5 text-center">Status</th>
@@ -299,6 +300,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                       <span className="text-[10px] font-bold text-slate-400">{p.role}</span>
                                   </div>
                                 </div>
+                            </td>
+                            <td className="px-8 py-6 text-center">
+                               <div className="inline-flex items-center gap-2 bg-slate-50 border p-2 rounded-xl">
+                                  <input type="time" value={p.shiftStart} onChange={(e) => onUpdateShift(p.id, e.target.value, p.shiftEnd)} className="bg-transparent text-[10px] font-black outline-none w-16" />
+                                  <span className="text-slate-300">»</span>
+                                  <input type="time" value={p.shiftEnd} onChange={(e) => onUpdateShift(p.id, p.shiftStart, e.target.value)} className="bg-transparent text-[10px] font-black outline-none w-16" />
+                               </div>
                             </td>
                             <td className="px-8 py-6">
                                 <div className="bg-slate-50 px-3 py-2 rounded-xl border text-[10px] font-bold text-slate-600 inline-block">
@@ -364,9 +372,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <span className="text-sm font-black text-slate-900">{trip.patientName}</span>
                              </td>
                              <td className="px-8 py-6 text-center">
-                                <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${trip.totalTat <= trip.targetTat ? 'bg-green-50 text-brand-green border-brand-green/20' : 'bg-orange-50 text-orange-600 border-orange-600/20'}`}>
-                                   {trip.totalTat <= trip.targetTat ? 'WITHIN TAT' : 'OUTSIDE TAT'} ({trip.totalTat}m)
-                                </span>
+                                <div className="flex items-center justify-center gap-2">
+                                   <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${trip.totalTat <= trip.targetTat ? 'bg-green-50 text-brand-green border-brand-green/20' : 'bg-orange-50 text-orange-600 border-orange-600/20'}`}>
+                                      {trip.totalTat <= trip.targetTat ? 'WITHIN TAT' : 'OUTSIDE TAT'} ({trip.totalTat}m)
+                                   </span>
+                                   {trip.voiceNote && (
+                                      <button 
+                                         onClick={() => new Audio(trip.voiceNote).play()}
+                                         className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
+                                         title="Play Voice Note"
+                                      >
+                                         <Volume2 size={12} />
+                                      </button>
+                                   )}
+                                </div>
                              </td>
                              <td className="px-8 py-6 text-right font-black text-brand-green">₹{trip.incentive.toFixed(2)}</td>
                           </tr>
@@ -751,6 +770,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           <option value="">Select Lab Node</option>
                           {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                        </select>
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift Start</label>
+                       <input required type="time" value={newStaff.shiftStart} onChange={e => setNewStaff({...newStaff, shiftStart: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift End</label>
+                       <input required type="time" value={newStaff.shiftEnd} onChange={e => setNewStaff({...newStaff, shiftEnd: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
                     </div>
                  </div>
                  <button type="submit" className="w-full bg-brand-green text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all mt-4">Complete Onboarding</button>
