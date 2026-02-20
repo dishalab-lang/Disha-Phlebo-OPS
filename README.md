@@ -18,3 +18,27 @@ View your app in AI Studio: https://ai.studio/apps/6812ccd1-43ee-4568-8a07-fdcf9
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+
+Drive Link :
+   Android APK:-
+   https://drive.google.com/drive/folders/197vSX5qJ0RIuUd1VmvWzO1rtI2_isWPb?usp=sharing
+
+Username Password
+
+System Administrator
+Username: admin
+Password: 123
+Access: Full system control and configuration.
+2. Admin Controller
+Username: disha
+Password: 123
+Access: Lab administration and dispatcher portal.
+3. Field Phlebotomist
+Username: phlebo
+Password: 123
+Access: Field task management, GPS tracking, and collection workflows.
+4. Developer
+Username: dev
+Password: dev
+Access: Developer node access.
