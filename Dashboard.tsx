@@ -7,6 +7,7 @@ import { RadarMap } from './AdminPanel';
 import { calculateDistance } from './geoUtils';
 
 interface DashboardProps {
+  currentUser: Phlebotomist;
   calls: CollectionCall[];
   config: SystemConfig;
   labs: DiagnosticLab[];
@@ -16,7 +17,7 @@ interface DashboardProps {
   onUpdateStatus?: (id: string, status: CallStatus) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, phleboList, onCreateCall, onUpdateStatus }) => {
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, config, labs, hospitals, phleboList, onCreateCall, onUpdateStatus }) => {
   const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR'>('QUEUE');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
@@ -181,9 +182,16 @@ const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, p
             </div>
           </div>
         </div>
-        <button onClick={() => setIsModalOpen(true)} className="w-full md:w-auto bg-brand-green text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3">
-          <Plus size={20} /> Deploy Call
-        </button>
+        {currentUser.role === 'DISPATCHER' ? (
+          <button onClick={() => setIsModalOpen(true)} className="w-full md:w-auto bg-brand-green text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3">
+            <Plus size={20} /> Deploy Call
+          </button>
+        ) : (
+          <div className="bg-slate-100 px-6 py-4 rounded-2xl border border-slate-200 flex items-center gap-3 text-slate-400">
+            <Lock size={16} />
+            <span className="text-[10px] font-black uppercase tracking-widest">Read-Only Queue</span>
+          </div>
+        )}
       </div>
 
       {activeTab === 'RADAR' ? (

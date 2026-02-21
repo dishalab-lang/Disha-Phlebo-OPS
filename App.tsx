@@ -155,7 +155,7 @@ const App: React.FC = () => {
       sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
       sessionStorage.setItem('MAUI_USER_ID', user.id);
       if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
-      else if (user.role === 'RECEPTION') setActiveRoute('DISPATCH');
+      else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
       else setActiveRoute('FIELD');
     } else {
       setLoginError('Credential Failure: Identity Unknown');
@@ -294,7 +294,7 @@ const App: React.FC = () => {
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a))}
           />
         )}
-        {activeRoute === 'DISPATCH' && <Dashboard calls={calls} config={config} labs={labs} hospitals={hospitals} phleboList={allPhlebos} onCreateCall={handleCreateCall} onUpdateStatus={updateCallStatus} />}
+        {activeRoute === 'DISPATCH' && <Dashboard currentUser={currentUser} calls={calls} config={config} labs={labs} hospitals={hospitals} phleboList={allPhlebos} onCreateCall={handleCreateCall} onUpdateStatus={updateCallStatus} />}
         {activeRoute === 'ADMIN' && (
           <AdminPanel 
             config={config} 
@@ -330,7 +330,7 @@ const App: React.FC = () => {
             <Truck size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Ops</span>
           </button>
         )}
-        {['ADMIN', 'SYSTEM_ADMIN', 'RECEPTION', 'DEVELOPER'].includes(currentUser.role) && (
+        {['ADMIN', 'SYSTEM_ADMIN', 'RECEPTION', 'DEVELOPER', 'DISPATCHER'].includes(currentUser.role) && (
           <button onClick={() => setActiveRoute('DISPATCH')} className={`flex flex-col items-center gap-1 ${activeRoute === 'DISPATCH' ? 'text-brand-purple' : 'text-slate-300'}`}>
             <LayoutGrid size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Dispatch</span>
           </button>

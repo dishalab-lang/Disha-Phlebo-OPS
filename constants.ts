@@ -155,4 +155,26 @@ export const MOCK_PHLEBOTOMISTS: Phlebotomist[] = [
     shiftEnd: '18:00', 
     currentLocation: { lat: 19.0800, lng: 72.8700, address: 'Bandra West' } 
   },
+  { 
+    id: 'D1', 
+    name: 'Central Dispatcher', 
+    phone: '9999999999', 
+    email: 'dispatch@dishalab.com',
+    aadhaar: '9999-9999-9999',
+    age: 30,
+    sex: 'FEMALE',
+    username: 'dispatch', 
+    password: '123', 
+    isAvailable: true, 
+    role: 'DISPATCHER',
+    labId: 'LAB001',
+    status: 'APPROVED',
+    grade: 'A', 
+    monthlyEarnings: 0, 
+    completedCalls: 0, 
+    rejectedCalls: 0, 
+    shiftStart: '00:00', 
+    shiftEnd: '23:59', 
+    currentLocation: { lat: 19.0760, lng: 72.8777, address: 'Command Center' } 
+  },
 ];

@@ -115,7 +115,7 @@ export interface Appointment {
   status: 'SCHEDULED' | 'CONVERTED' | 'CANCELLED' | 'COMPLETED';
 }
 
-export type StaffRole = 'DEVELOPER' | 'SYSTEM_ADMIN' | 'ADMIN' | 'EMPLOYEE' | 'RECEPTION' | 'ACCOUNT';
+export type StaffRole = 'DEVELOPER' | 'SYSTEM_ADMIN' | 'ADMIN' | 'EMPLOYEE' | 'RECEPTION' | 'ACCOUNT' | 'DISPATCHER';
 export type UserStatus = 'PENDING' | 'APPROVED' | 'LOCKED';
 
 export interface Phlebotomist {
