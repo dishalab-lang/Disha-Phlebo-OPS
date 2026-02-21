@@ -160,14 +160,25 @@ const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, p
     });
   };
 
+  const onlinePhlebosCount = useMemo(() => {
+    const now = Date.now();
+    return phleboList.filter(p => p.role === 'EMPLOYEE' && p.lastActive && (now - p.lastActive) < 120000).length;
+  }, [phleboList]);
+
   return (
     <div className="space-y-6 pb-24 lg:pb-0">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight uppercase">Dispatcher Portal</h2>
-          <div className="flex bg-white p-1 rounded-2xl border shadow-sm mt-3 gap-1">
-             <button onClick={() => setActiveTab('QUEUE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Queue</button>
-             <button onClick={() => setActiveTab('RADAR')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'RADAR' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Fleet</button>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex bg-white p-1 rounded-2xl border shadow-sm gap-1">
+               <button onClick={() => setActiveTab('QUEUE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Queue</button>
+               <button onClick={() => setActiveTab('RADAR')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'RADAR' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Fleet</button>
+            </div>
+            <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-2xl border border-green-100">
+              <div className="w-2 h-2 bg-brand-green rounded-full animate-pulse" />
+              <span className="text-[10px] font-black text-brand-green uppercase tracking-widest">{onlinePhlebosCount} Phlebos Online</span>
+            </div>
           </div>
         </div>
         <button onClick={() => setIsModalOpen(true)} className="w-full md:w-auto bg-brand-green text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3">

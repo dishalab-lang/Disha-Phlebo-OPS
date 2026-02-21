@@ -289,7 +289,7 @@ const App: React.FC = () => {
             onUpdateStatus={updateCallStatus} 
             onResendOtp={handleResendOtp}
             onVerifyOtp={handleVerifyOtp}
-            onUpdateLocation={(id, loc) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc} : p))}
+            onUpdateLocation={(id, loc) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc, lastActive: Date.now()} : p))}
             onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now(), status: 'SCHEDULED'} as any])}
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a))}
           />
