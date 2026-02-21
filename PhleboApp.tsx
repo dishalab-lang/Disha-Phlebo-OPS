@@ -21,6 +21,8 @@ interface PhleboAppProps {
   config: SystemConfig;
   history: CallMetrics[];
   onUpdateStatus: (id: string, status: CallStatus, phleboId: string, updates?: any) => void;
+  onResendOtp: (id: string) => void;
+  onVerifyOtp: (id: string, pin: string) => { success: boolean; errorMsg: string };
   onUpdateLocation: (id: string, location: Location) => void;
   onBookAppointment: (apt: Partial<Appointment>) => void;
   onUpdateAppointmentStatus: (id: string, status: Appointment['status']) => void;
@@ -28,7 +30,7 @@ interface PhleboAppProps {
 
 const PhleboApp: React.FC<PhleboAppProps> = ({ 
   currentUser, calls, labs, appointments, config, history, 
-  onUpdateStatus, onUpdateLocation, onBookAppointment, onUpdateAppointmentStatus 
+  onUpdateStatus, onResendOtp, onVerifyOtp, onUpdateLocation, onBookAppointment, onUpdateAppointmentStatus 
 }) => {
   const [activeTab, setActiveTab] = useState<'TASKS' | 'TRIPS' | 'SCHEDULE'>('TASKS');
   const [activeCall, setActiveCall] = useState<CollectionCall | null>(null);
@@ -128,10 +130,14 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 
   const handleCollect = () => {
     if (!activeCall) return;
-    if (verificationInput !== activeCall.verificationCode) {
-      alert("Invalid verification PIN. Ask patient for the 4-digit code.");
+    
+    const { success, errorMsg } = onVerifyOtp(activeCall.id, verificationInput);
+    
+    if (!success) {
+      alert(errorMsg);
       return;
     }
+
     if (!activeCall.visitPhoto || !activeCall.samplePhoto) {
       alert("Evidence Required: Capture Visit Proof and Sample Photo first.");
       return;
@@ -343,13 +349,33 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  
                  {activeCall.status === CallStatus.VISITING && (
                    <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-center opacity-60">Enter Patient Auth PIN</p>
+                      <div className="flex justify-between items-center px-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Patient Auth PIN</p>
+                        <div className="flex items-center gap-2">
+                          <Clock size={10} className="text-orange-400" />
+                          <span className="text-[9px] font-black text-orange-400 uppercase">
+                            Exp: {Math.max(0, Math.floor((activeCall.otpExpiresAt - currentTime) / 1000))}s
+                          </span>
+                        </div>
+                      </div>
                       <input 
                         type="text" maxLength={4} placeholder="----"
                         value={verificationInput}
+                        disabled={activeCall.isOtpLocked}
                         onChange={(e) => setVerificationInput(e.target.value.replace(/[^0-9]/g, ''))}
-                        className="w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10"
+                        className={`w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10 ${activeCall.isOtpLocked ? 'opacity-50' : ''}`}
                       />
+                      <div className="flex justify-between items-center px-2">
+                        <span className="text-[8px] font-bold text-white/40 uppercase">
+                          {activeCall.isOtpLocked ? 'NODE LOCKED' : `${3 - activeCall.otpRetryCount} attempts remaining`}
+                        </span>
+                        <button 
+                          onClick={() => { onResendOtp(activeCall.id); setVerificationInput(''); }}
+                          className="text-[9px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-all"
+                        >
+                          Resend PIN
+                        </button>
+                      </div>
                    </div>
                  )}
 

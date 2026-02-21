@@ -71,18 +71,73 @@ const App: React.FC = () => {
   }, []);
 
   const handleCreateCall = useCallback((call: Partial<CollectionCall>) => {
+    const now = Date.now();
     const newCallObj: CollectionCall = {
       ...call,
       id: 'D' + Date.now(),
       status: CallStatus.PENDING,
       labId: call.labId || labs[0].id,
-      placedAt: Date.now(),
+      placedAt: now,
       verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
+      otpGeneratedAt: now,
+      otpExpiresAt: now + (10 * 60 * 1000), // 10 minutes
+      otpRetryCount: 0,
+      isOtpLocked: false,
     } as CollectionCall;
 
     setCalls(prev => [newCallObj, ...prev]);
     setToast({ message: `Deployment Active: ${newCallObj.patientName} (PIN: ${newCallObj.verificationCode})`, type: 'success' });
   }, [labs]);
+
+  const handleResendOtp = useCallback((callId: string) => {
+    const now = Date.now();
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+    setCalls(prev => prev.map(c => {
+      if (c.id === callId) {
+        return {
+          ...c,
+          verificationCode: newPin,
+          otpGeneratedAt: now,
+          otpExpiresAt: now + (10 * 60 * 1000),
+          otpRetryCount: 0,
+          isOtpLocked: false
+        };
+      }
+      return c;
+    }));
+    setToast({ message: `New PIN Generated for call ${callId.slice(-4)}`, type: 'info' });
+  }, []);
+
+  const handleVerifyOtp = useCallback((callId: string, inputPin: string) => {
+    const now = Date.now();
+    let success = false;
+    let errorMsg = '';
+
+    setCalls(prev => prev.map(c => {
+      if (c.id === callId) {
+        if (c.isOtpLocked) {
+          errorMsg = 'Security Lock: Too many failed attempts. Contact Dispatch.';
+          return c;
+        }
+        if (now > c.otpExpiresAt) {
+          errorMsg = 'PIN Expired: Please request a new one.';
+          return c;
+        }
+        if (inputPin === c.verificationCode) {
+          success = true;
+          return { ...c, otpRetryCount: 0 };
+        } else {
+          const newRetryCount = c.otpRetryCount + 1;
+          const isLocked = newRetryCount >= 3;
+          errorMsg = isLocked ? 'Security Lock: Node Locked. Contact Dispatch.' : `Invalid PIN. ${3 - newRetryCount} attempts remaining.`;
+          return { ...c, otpRetryCount: newRetryCount, isOtpLocked: isLocked };
+        }
+      }
+      return c;
+    }));
+
+    return { success, errorMsg };
+  }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,6 +287,8 @@ const App: React.FC = () => {
             config={config} 
             history={performanceHistory}
             onUpdateStatus={updateCallStatus} 
+            onResendOtp={handleResendOtp}
+            onVerifyOtp={handleVerifyOtp}
             onUpdateLocation={(id, loc) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc} : p))}
             onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now(), status: 'SCHEDULED'} as any])}
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a))}

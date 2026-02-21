@@ -77,6 +77,10 @@ export interface CollectionCall {
   patientName: string;
   patientPhone: string;
   verificationCode: string;
+  otpGeneratedAt: number;
+  otpExpiresAt: number;
+  otpRetryCount: number;
+  isOtpLocked: boolean;
   type: CallType;
   destination: Location;
   placedAt: number;

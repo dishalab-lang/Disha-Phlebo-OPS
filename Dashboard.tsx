@@ -21,6 +21,12 @@ const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, p
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
   const [selectedTests, setSelectedTests] = useState<DiagnosticTest[]>([]);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   
   const [newCall, setNewCall] = useState({
     patientName: '',
@@ -193,9 +199,16 @@ const Dashboard: React.FC<DashboardProps> = ({ calls, config, labs, hospitals, p
                       <span className="text-[9px] font-bold text-slate-400 uppercase">{call.billing.tests.length} Tests</span>
                     </td>
                     <td className="px-6 py-6 text-center">
-                      <span className="text-sm font-black text-brand-purple bg-brand-purple/5 px-4 py-2 rounded-xl border border-brand-purple/20 font-mono tracking-widest">
-                        {call.verificationCode}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest ${call.isOtpLocked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-brand-purple/5 text-brand-purple border-brand-purple/20'}`}>
+                          {call.isOtpLocked ? 'LOCKED' : call.verificationCode}
+                        </span>
+                        {!call.isOtpLocked && call.status === CallStatus.VISITING && (
+                          <span className="text-[7px] font-black text-slate-400 uppercase">
+                            Exp in {Math.max(0, Math.floor((call.otpExpiresAt - currentTime) / 1000))}s
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-6 text-center">
                       <div className="flex items-center justify-center gap-2">
