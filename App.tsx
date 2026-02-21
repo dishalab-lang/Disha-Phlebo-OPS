@@ -38,6 +38,25 @@ const App: React.FC = () => {
     return null;
   });
 
+  // Initial data fetch
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [callsRes, usersRes] = await Promise.all([
+          fetch('/api/calls'),
+          fetch('/api/users')
+        ]);
+        if (callsRes.ok) setCalls(await callsRes.json());
+        if (usersRes.ok) setAllPhlebos(await usersRes.json());
+      } catch (e) {
+        console.error("Fetch error:", e);
+      }
+    };
+    fetchData();
+    const interval = setInterval(fetchData, 10000); // Poll every 10s
+    return () => clearInterval(interval);
+  }, []);
+
   // Sync currentUser with latest allPhlebos state
   useEffect(() => {
     const id = sessionStorage.getItem('MAUI_USER_ID');
@@ -70,7 +89,7 @@ const App: React.FC = () => {
     }));
   }, []);
 
-  const handleCreateCall = useCallback((call: Partial<CollectionCall>) => {
+  const handleCreateCall = useCallback(async (call: Partial<CollectionCall>) => {
     const now = Date.now();
     const newCallObj: CollectionCall = {
       ...call,
@@ -85,80 +104,111 @@ const App: React.FC = () => {
       isOtpLocked: false,
     } as CollectionCall;
 
-    setCalls(prev => [newCallObj, ...prev]);
-    setToast({ message: `Deployment Active: ${newCallObj.patientName} (PIN: ${newCallObj.verificationCode})`, type: 'success' });
-  }, [labs]);
+    try {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify(newCallObj)
+      });
+      if (res.ok) {
+        setCalls(prev => [newCallObj, ...prev]);
+        setToast({ message: `Deployment Active: ${newCallObj.patientName} (PIN: ${newCallObj.verificationCode})`, type: 'success' });
+      }
+    } catch (e) {
+      setToast({ message: "Failed to deploy call", type: 'info' });
+    }
+  }, [labs, currentUser]);
 
-  const handleResendOtp = useCallback((callId: string) => {
+  const handleResendOtp = useCallback(async (callId: string) => {
     const now = Date.now();
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
-    setCalls(prev => prev.map(c => {
-      if (c.id === callId) {
-        return {
-          ...c,
-          verificationCode: newPin,
-          otpGeneratedAt: now,
-          otpExpiresAt: now + (10 * 60 * 1000),
-          otpRetryCount: 0,
-          isOtpLocked: false
-        };
-      }
-      return c;
-    }));
-    setToast({ message: `New PIN Generated for call ${callId.slice(-4)}`, type: 'info' });
-  }, []);
+    const updates = {
+      verificationCode: newPin,
+      otpGeneratedAt: now,
+      otpExpiresAt: now + (10 * 60 * 1000),
+      otpRetryCount: 0,
+      isOtpLocked: 0
+    };
 
-  const handleVerifyOtp = useCallback((callId: string, inputPin: string) => {
+    try {
+      const res = await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        setCalls(prev => prev.map(c => c.id === callId ? { ...c, ...updates, isOtpLocked: false } : c));
+        setToast({ message: `New PIN Generated for call ${callId.slice(-4)}`, type: 'info' });
+      }
+    } catch (e) {}
+  }, [currentUser]);
+
+  const handleVerifyOtp = useCallback(async (callId: string, inputPin: string) => {
     const now = Date.now();
     let success = false;
     let errorMsg = '';
+    const call = calls.find(c => c.id === callId);
+    if (!call) return { success, errorMsg: 'Call not found' };
 
-    setCalls(prev => prev.map(c => {
-      if (c.id === callId) {
-        if (c.isOtpLocked) {
-          errorMsg = 'Security Lock: Too many failed attempts. Contact Dispatch.';
-          return c;
-        }
-        if (now > c.otpExpiresAt) {
-          errorMsg = 'PIN Expired: Please request a new one.';
-          return c;
-        }
-        if (inputPin === c.verificationCode) {
-          success = true;
-          return { ...c, otpRetryCount: 0 };
-        } else {
-          const newRetryCount = c.otpRetryCount + 1;
-          const isLocked = newRetryCount >= 3;
-          errorMsg = isLocked ? 'Security Lock: Node Locked. Contact Dispatch.' : `Invalid PIN. ${3 - newRetryCount} attempts remaining.`;
-          return { ...c, otpRetryCount: newRetryCount, isOtpLocked: isLocked };
-        }
-      }
-      return c;
-    }));
+    if (call.isOtpLocked) {
+      return { success: false, errorMsg: 'Security Lock: Too many failed attempts. Contact Dispatch.' };
+    }
+    if (now > call.otpExpiresAt) {
+      return { success: false, errorMsg: 'PIN Expired: Please request a new one.' };
+    }
+
+    if (inputPin === call.verificationCode) {
+      success = true;
+      await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify({ otpRetryCount: 0 })
+      });
+      setCalls(prev => prev.map(c => c.id === callId ? { ...c, otpRetryCount: 0 } : c));
+    } else {
+      const newRetryCount = call.otpRetryCount + 1;
+      const isLocked = newRetryCount >= 3;
+      errorMsg = isLocked ? 'Security Lock: Node Locked. Contact Dispatch.' : `Invalid PIN. ${3 - newRetryCount} attempts remaining.`;
+      
+      await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify({ otpRetryCount: newRetryCount, isOtpLocked: isLocked ? 1 : 0 })
+      });
+      setCalls(prev => prev.map(c => c.id === callId ? { ...c, otpRetryCount: newRetryCount, isOtpLocked: isLocked } : c));
+    }
 
     return { success, errorMsg };
-  }, []);
+  }, [calls, currentUser]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const inputUser = loginForm.userId.trim().toLowerCase();
-    const inputPass = loginForm.password.trim();
-    const user = allPhlebos.find(p => p.username?.toLowerCase() === inputUser && p.password === inputPass);
-    if (user) {
-      if (user.status === 'LOCKED') {
-        setLoginError('Access Restricted: Node Locked');
-        return;
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginForm.userId, password: loginForm.password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const user = data.user;
+        if (user.status === 'LOCKED') {
+          setLoginError('Access Restricted: Node Locked');
+          return;
+        }
+        setIsAuthenticated(true);
+        setCurrentUser(user);
+        sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
+        sessionStorage.setItem('MAUI_USER_ID', user.id);
+        if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
+        else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
+        else setActiveRoute('FIELD');
+      } else {
+        setLoginError('Credential Failure: Identity Unknown');
       }
-      setIsAuthenticated(true);
-      setCurrentUser(user);
-      sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
-      sessionStorage.setItem('MAUI_USER_ID', user.id);
-      if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
-      else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
-      else setActiveRoute('FIELD');
-    } else {
-      setLoginError('Credential Failure: Identity Unknown');
+    } catch (e) {
+      setLoginError('Network Error: Server Unreachable');
     }
   };
 
@@ -171,47 +221,52 @@ const App: React.FC = () => {
     setLoginForm({ userId: '', password: '' });
   };
 
-  const updateCallStatus = (callId: string, status: CallStatus, phleboId?: string, updates?: Partial<CollectionCall>) => {
-    setCalls(prev => prev.map(c => {
-      if (c.id === callId) {
-        const update: any = { ...updates, status };
-        if (status === CallStatus.ACCEPTED) {
-          update.acceptedAt = Date.now();
-          update.assignedPhleboId = phleboId;
-        }
-        if (status === CallStatus.DELIVERED) {
-          const now = Date.now();
-          const lab = labs.find(l => l.id === c.labId) || labs[0];
-          const dist = calculateDistance(c.destination, lab.location);
-          const phlebo = allPhlebos.find(p => p.id === (phleboId || c.assignedPhleboId));
-          
-          const tatTarget = config.tatBrackets.find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes;
-          const totalMins = (now - c.placedAt) / 60000;
-          const rate = totalMins <= tatTarget ? config.withinTatRate : config.outsideTatRate;
-          
-          const metrics: CallMetrics = {
-            callId: c.id,
-            phleboId: phlebo?.id || 'Unknown',
-            phleboName: phlebo?.name || 'Unknown',
-            patientName: c.patientName,
-            totalTat: Math.round(totalMins),
-            targetTat: tatTarget,
-            distance: dist,
-            incentive: dist * rate * (c.isPriority ? 1.5 : 1),
-            revenue: c.billing.totalAmount,
-            paymentMode: c.billing.paymentMode,
-            timestamp: now,
-            isPremiumIncentive: !!c.isPriority,
-            voiceNote: c.voiceNote,
-            status: 'COMPLETED'
-          };
-          recordMetrics(metrics);
-          update.status = CallStatus.COMPLETED;
-        }
-        return { ...c, ...update };
+  const updateCallStatus = async (callId: string, status: CallStatus, phleboId?: string, updates?: Partial<CollectionCall>) => {
+    const update: any = { ...updates, status };
+    if (status === CallStatus.ACCEPTED) {
+      update.acceptedAt = Date.now();
+      update.assignedPhleboId = phleboId;
+    }
+    if (status === CallStatus.DELIVERED) {
+      const now = Date.now();
+      const lab = labs.find(l => l.id === (calls.find(c => c.id === callId)?.labId)) || labs[0];
+      const call = calls.find(c => c.id === callId);
+      if (call) {
+        const dist = calculateDistance(call.destination, lab.location);
+        const phlebo = allPhlebos.find(p => p.id === (phleboId || call.assignedPhleboId));
+        const tatTarget = config.tatBrackets.find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes;
+        const totalMins = (now - call.placedAt) / 60000;
+        const rate = totalMins <= tatTarget ? config.withinTatRate : config.outsideTatRate;
+        
+        const metrics: CallMetrics = {
+          callId: call.id,
+          phleboId: phlebo?.id || 'Unknown',
+          phleboName: phlebo?.name || 'Unknown',
+          patientName: call.patientName,
+          totalTat: Math.round(totalMins),
+          targetTat: tatTarget,
+          distance: dist,
+          incentive: dist * rate * (call.isPriority ? 1.5 : 1),
+          revenue: call.billing.totalAmount,
+          paymentMode: call.billing.paymentMode,
+          timestamp: now,
+          isPremiumIncentive: !!call.isPriority,
+          voiceNote: call.voiceNote,
+          status: 'COMPLETED'
+        };
+        recordMetrics(metrics);
+        update.status = CallStatus.COMPLETED;
       }
-      return c;
-    }));
+    }
+
+    try {
+      await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify(update)
+      });
+      setCalls(prev => prev.map(c => c.id === callId ? { ...c, ...update } : c));
+    } catch (e) {}
   };
 
   const handleRegisterPhlebo = (p: Partial<Phlebotomist>) => {
@@ -289,7 +344,14 @@ const App: React.FC = () => {
             onUpdateStatus={updateCallStatus} 
             onResendOtp={handleResendOtp}
             onVerifyOtp={handleVerifyOtp}
-            onUpdateLocation={(id, loc) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc, lastActive: Date.now()} : p))}
+            onUpdateLocation={(id, loc) => {
+              fetch(`/api/users/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'x-user-id': id },
+                body: JSON.stringify({ currentLocation: loc })
+              });
+              setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc, lastActive: Date.now()} : p));
+            }}
             onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now(), status: 'SCHEDULED'} as any])}
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a))}
           />
