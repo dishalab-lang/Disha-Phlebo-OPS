@@ -1,0 +1,16 @@
+datasource db {
+  provider = "sqlite"
+
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model CollectionCall {
+  id          String    @id @default(cuid())
+  patientName String
+  patientPhone String
+  otp         String
+  status      String
+}

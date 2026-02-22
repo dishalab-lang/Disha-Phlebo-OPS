@@ -6,7 +6,8 @@ export enum CallStatus {
   COLLECTED = 'COLLECTED',
   DELIVERED = 'DELIVERED', 
   COMPLETED = 'COMPLETED',
-  REJECTED = 'REJECTED'
+  REJECTED = 'REJECTED',
+  IN_PROGRESS = 'IN_PROGRESS'
 }
 
 export enum CallType {

@@ -7,10 +7,19 @@ import {
   CheckCircle2, MapPin, Plus, Building2, Search, Timer, Radar, 
   Activity, X, UserPlus, Phone, ShieldAlert, Send, Home, UserCheck, Lock, Unlock,
   Truck, Target, Locate, TrendingUp, Sparkles, UserCircle, AlertCircle, Fingerprint, Shield,
-  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2
+  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2, Key
 } from 'lucide-react';
+
+import { GoogleGenAI } from '@google/genai';
+
+const SUPER_USER_ROLES: Set<StaffRole> = new Set(['ADMIN', 'SYSTEM_ADMIN', 'DEVELOPER']);
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+
+interface PerformanceReport {
+  grade: 'A' | 'B' | 'C' | 'D';
+  feedback: string;
+}
 
 export const RadarMap: React.FC<{ phleboList: Phlebotomist[], activeCalls: CollectionCall[] }> = ({ phleboList, activeCalls }) => {
   return (
@@ -71,8 +80,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   phleboList, activeCalls, currentUser, tests, onUpdateShift, 
   onRegisterPhlebo, onRemovePhlebo, onUpdateUserStatus, onUpdateTests, onUpdateLabs, onUpdateHospitals, onUpdatePhleboRole
 }) => {
-  const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG'>('FLEET');
+  const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG' | 'PERFORMANCE'>('FLEET');
   const [editedConfig, setEditedConfig] = useState(config);
+  const [performanceReports, setPerformanceReports] = useState<Record<string, PerformanceReport>>({});
   
   const [isRegisteringStaff, setIsRegisteringStaff] = useState(false);
   const [editingTest, setEditingTest] = useState<DiagnosticTest | null>(null);
@@ -81,6 +91,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isAddingTest, setIsAddingTest] = useState(false);
   const [isAddingLab, setIsAddingLab] = useState(false);
   const [isAddingHospital, setIsAddingHospital] = useState(false);
+
+  const canEditSettings = currentUser && SUPER_USER_ROLES.has(currentUser.role);
 
   // Ledger Filter State
   const [ledgerStartDate, setLedgerStartDate] = useState(() => {
@@ -235,6 +247,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         <NavBtn label="Hubs" tab="INFRA" icon={Building2} />
         <NavBtn label="Hospitals" tab="HOSPITALS" icon={HospitalIcon} />
         <NavBtn label="Ledger" tab="FINANCE" icon={IndianRupee} />
+        <NavBtn label="Performance" tab="PERFORMANCE" icon={BarChart3} />
         <NavBtn label="Config" tab="CONFIG" icon={Settings} />
       </div>
 
@@ -326,9 +339,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <button onClick={() => onUpdateUserStatus(p.id, p.status === 'APPROVED' ? 'LOCKED' : 'APPROVED')} className={`p-3 rounded-xl transition-all ${p.status === 'APPROVED' ? 'text-red-400 hover:bg-red-50' : 'text-brand-green hover:bg-green-50'}`}>
                                   {p.status === 'APPROVED' ? <Lock size={18} /> : <Unlock size={18} />}
                                 </button>
-                                <button onClick={() => onRemovePhlebo(p.id)} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                                  <Trash2 size={18} />
-                                </button>
+                                {canEditSettings && p.id !== currentUser.id && !SUPER_USER_ROLES.has(p.role) && (
+                                  <button onClick={() => onRemovePhlebo(p.id)} className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                    <Trash2 size={18} />
+                                  </button>
+                                )}
                             </td>
                           </tr>
                         );
@@ -629,68 +644,173 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {activeTab === 'CONFIG' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-slide-up">
-          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm">
-            <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> Enterprise Standards</h3>
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 gap-6">
-                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Within TAT Rate (₹/KM)</label>
-                    <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
-                 </div>
-                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Outside TAT Rate (₹/KM)</label>
-                    <input type="number" value={editedConfig.outsideTatRate} onChange={e => setEditedConfig({...editedConfig, outsideTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
-                 </div>
-              </div>
-              <div>
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Security Authorization PIN</label>
-                 <input type="text" maxLength={4} value={editedConfig.securityPin} onChange={e => setEditedConfig({...editedConfig, securityPin: e.target.value})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl text-brand-purple tracking-[1em] text-center outline-none" />
-              </div>
-              <button onClick={() => { onUpdateConfig(editedConfig); alert("Global enterprise standards updated."); }} className="w-full bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
-                <Save size={20} /> Synchronize Global Config
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col">
-            <div className="flex justify-between items-center mb-8">
-               <h3 className="text-xl font-black text-slate-900 flex items-center gap-3 uppercase tracking-tight"><Clock className="text-brand-purple" /> Multi-Hub TAT Matrix</h3>
-               <button onClick={handleAddTatBracket} className="p-2 text-brand-purple hover:bg-brand-purple/5 rounded-xl transition-all">
-                  <PlusCircle size={24} />
-               </button>
-            </div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 leading-relaxed">Dynamic TAT allocation based on radial distance from assignment hub.</p>
-            
-            <div className="space-y-4 flex-1 overflow-y-auto pr-2 no-scrollbar mb-6">
-               {editedConfig.tatBrackets.sort((a,b) => a.maxKm - b.maxKm).map((bracket, idx) => (
-                  <div key={idx} className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 flex items-center gap-4 animate-slide-up">
-                     <div className="flex-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Max Radius (KM)</label>
-                        <input 
-                           type="number" 
-                           value={bracket.maxKm} 
-                           onChange={e => handleUpdateTatBracket(idx, 'maxKm', parseFloat(e.target.value))}
-                           className="w-full bg-white p-3 rounded-xl font-black text-slate-900 outline-none border focus:border-brand-purple"
-                        />
+          {canEditSettings ? (
+            <>
+              <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> Enterprise Standards</h3>
+                <div className="space-y-8">
+                  <div className="grid grid-cols-2 gap-6">
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Within TAT Rate (₹/KM)</label>
+                        <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
-                     <div className="flex-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Target TAT (Mins)</label>
-                        <input 
-                           type="number" 
-                           value={bracket.tatMinutes} 
-                           onChange={e => handleUpdateTatBracket(idx, 'tatMinutes', parseInt(e.target.value))}
-                           className="w-full bg-white p-3 rounded-xl font-black text-brand-purple outline-none border focus:border-brand-purple"
-                        />
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Outside TAT Rate (₹/KM)</label>
+                        <input type="number" value={editedConfig.outsideTatRate} onChange={e => setEditedConfig({...editedConfig, outsideTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
-                     <button onClick={() => handleRemoveTatBracket(idx)} className="p-3 text-red-300 hover:text-red-500 transition-all mt-4">
-                        <Trash2 size={18} />
-                     </button>
                   </div>
-               ))}
+                  <div>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Security Authorization PIN</label>
+                     <input type="text" maxLength={4} value={editedConfig.securityPin} onChange={e => setEditedConfig({...editedConfig, securityPin: e.target.value})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl text-brand-purple tracking-[1em] text-center outline-none" />
+                  </div>
+                  <button onClick={() => { onUpdateConfig(editedConfig); alert("Global enterprise standards updated."); }} className="w-full bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
+                    <Save size={20} /> Synchronize Global Config
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col">
+                <div className="flex justify-between items-center mb-8">
+                   <h3 className="text-xl font-black text-slate-900 flex items-center gap-3 uppercase tracking-tight"><Clock className="text-brand-purple" /> Multi-Hub TAT Matrix</h3>
+                   <button onClick={handleAddTatBracket} className="p-2 text-brand-purple hover:bg-brand-purple/5 rounded-xl transition-all">
+                      <PlusCircle size={24} />
+                   </button>
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 leading-relaxed">Dynamic TAT allocation based on radial distance from assignment hub.</p>
+                
+                <div className="space-y-4 flex-1 overflow-y-auto pr-2 no-scrollbar mb-6">
+                   {editedConfig.tatBrackets.sort((a,b) => a.maxKm - b.maxKm).map((bracket, idx) => (
+                      <div key={idx} className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 flex items-center gap-4 animate-slide-up">
+                         <div className="flex-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Max Radius (KM)</label>
+                            <input 
+                               type="number" 
+                               value={bracket.maxKm} 
+                               onChange={e => handleUpdateTatBracket(idx, 'maxKm', parseFloat(e.target.value))}
+                               className="w-full bg-white p-3 rounded-xl font-black text-slate-900 outline-none border focus:border-brand-purple"
+                            />
+                         </div>
+                         <div className="flex-1">
+                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Target TAT (Mins)</label>
+                            <input 
+                               type="number" 
+                               value={bracket.tatMinutes} 
+                               onChange={e => handleUpdateTatBracket(idx, 'tatMinutes', parseInt(e.target.value))}
+                               className="w-full bg-white p-3 rounded-xl font-black text-brand-purple outline-none border focus:border-brand-purple"
+                            />
+                         </div>
+                         <button onClick={() => handleRemoveTatBracket(idx)} className="p-3 text-red-300 hover:text-red-500 transition-all mt-4">
+                            <Trash2 size={18} />
+                         </button>
+                      </div>
+                   ))}
+                </div>
+                <button onClick={() => { onUpdateConfig(editedConfig); alert("TAT Matrix saved successfully."); }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
+                   <Save size={18} /> Save Matrix
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="col-span-1 lg:col-span-2 bg-white p-12 rounded-[2.5rem] border shadow-sm animate-slide-up text-center">
+                <Lock size={48} className="mx-auto text-slate-200 mb-4" />
+                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Access Denied</h3>
+                <p className="text-sm text-slate-500 mt-2">You do not have sufficient privileges to modify system settings.</p>
             </div>
-            <button onClick={() => { onUpdateConfig(editedConfig); alert("TAT Matrix saved successfully."); }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
-               <Save size={18} /> Save Matrix
-            </button>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'PERFORMANCE' && (
+        <div className="space-y-6 animate-slide-up">
+          <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Performance Analytics</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">AI-powered performance review</p>
+          </div>
+          <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <tr>
+                    <th className="px-8 py-5">Personnel</th>
+                    <th className="px-8 py-5">AI Grade</th>
+                    <th className="px-8 py-5">AI Feedback</th>
+                    <th className="px-8 py-5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {phleboList.map(p => (
+                    <tr key={p.id}>
+                      <td className="px-8 py-6">
+                        <span className="text-sm font-black text-slate-900">{p.name}</span>
+                      </td>
+                      <td className="px-8 py-6">
+                        {performanceReports[p.id] ? (
+                          <span className='font-black text-2xl text-brand-purple'>{performanceReports[p.id].grade}</span>
+                        ) : (
+                          <span className='text-slate-300'>-</span>
+                        )}
+                      </td>
+                      <td className="px-8 py-6">
+                        <p className="text-xs text-slate-600 max-w-md">{performanceReports[p.id]?.feedback}</p>
+                      </td>
+                      <td className="px-8 py-6 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={async () => {
+                              const relevantHistory = history.filter(h => h.phleboId === p.id);
+                              const res = await fetch('/api/analyze-performance', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ phlebotomist: p, history: relevantHistory })
+                              });
+                              if (res.ok) {
+                                const report = await res.json();
+                                setPerformanceReports(prev => ({...prev, [p.id]: report}));
+                              }
+                            }}
+                            className="bg-brand-purple text-white px-4 py-2 rounded-lg text-xs font-bold"
+                          >
+                            Analyze
+                          </button>
+                          <button 
+                            onClick={async () => {
+                              const res = await fetch(`/api/users/${p.id}/report-data`);
+                              if (res.ok) {
+                                const { user, calls } = await res.json();
+                                const doc = new jsPDF();
+                                doc.text(`Performance Report for ${user.name}`, 14, 16);
+                                doc.setFontSize(12);
+                                doc.text(`ID: ${user.id}`, 14, 24);
+                                doc.text(`Grade: ${user.grade || 'N/A'}`, 14, 30);
+                                doc.text(`Monthly Earnings: $${user.monthlyEarnings.toFixed(2)}`, 14, 36);
+                                doc.text(`Completed Calls: ${user.completedCalls}`, 14, 42);
+
+                                (doc as any).autoTable({
+                                  startY: 50,
+                                  head: [['ID', 'Patient', 'Status', 'Collected At', 'TAT (Mins)']],
+                                  body: calls.map((c: any) => [
+                                    c.id,
+                                    c.patientName,
+                                    c.status,
+                                    new Date(c.collectedAt).toLocaleString(),
+                                    c.collectedAt ? ((c.collectedAt - c.placedAt) / 60000).toFixed(2) : 'N/A'
+                                  ]),
+                                });
+
+                                doc.save(`report-${user.id}.pdf`);
+                              }
+                            }}
+                            className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"
+                          >
+                            <Download size={14} /> Report
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

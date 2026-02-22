@@ -10,7 +10,7 @@ import {
   Mic, Square, Play, Volume2
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
-import { TEST_CATALOG } from './constants';
+
 import { LogoBird } from './LogoBird';
 
 interface PhleboAppProps {
@@ -18,18 +18,19 @@ interface PhleboAppProps {
   calls: CollectionCall[];
   labs: DiagnosticLab[];
   appointments: Appointment[];
+  tests: DiagnosticTest[];
   config: SystemConfig;
   history: CallMetrics[];
   onUpdateStatus: (id: string, status: CallStatus, phleboId: string, updates?: any) => void;
   onResendOtp: (id: string) => void;
-  onVerifyOtp: (id: string, pin: string) => { success: boolean; errorMsg: string };
+  onVerifyOtp: (id: string, pin: string) => Promise<{ success: boolean; errorMsg: string }>
   onUpdateLocation: (id: string, location: Location) => void;
   onBookAppointment: (apt: Partial<Appointment>) => void;
   onUpdateAppointmentStatus: (id: string, status: Appointment['status']) => void;
 }
 
 const PhleboApp: React.FC<PhleboAppProps> = ({ 
-  currentUser, calls, labs, appointments, config, history, 
+  currentUser, calls, labs, appointments, tests, config, history, 
   onUpdateStatus, onResendOtp, onVerifyOtp, onUpdateLocation, onBookAppointment, onUpdateAppointmentStatus 
 }) => {
   const [activeTab, setActiveTab] = useState<'TASKS' | 'TRIPS' | 'SCHEDULE'>('TASKS');
@@ -128,10 +129,10 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     }
   };
 
-  const handleCollect = () => {
+  const handleCollect = async () => {
     if (!activeCall) return;
     
-    const { success, errorMsg } = onVerifyOtp(activeCall.id, verificationInput);
+    const { success, errorMsg } = await onVerifyOtp(activeCall.id, verificationInput);
     
     if (!success) {
       alert(errorMsg);
@@ -164,7 +165,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       return;
     }
     
-    const test = TEST_CATALOG.find(t => t.id === newAppointment.testId);
+    const test = tests.find(t => t.id === newAppointment.testId);
     const scheduledTimestamp = new Date(`${newAppointment.date}T${newAppointment.time}`).getTime();
 
     onBookAppointment({
@@ -609,7 +610,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                          className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple appearance-none"
                        >
                           <option value="">Select Service Node</option>
-                          {TEST_CATALOG.map(test => (
+                          {tests.map(test => (
                             <option key={test.id} value={test.id}>{test.name} - ₹{test.price}</option>
                           ))}
                        </select>

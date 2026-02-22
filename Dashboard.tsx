@@ -1,24 +1,27 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { CollectionCall, CallType, CallStatus, DiagnosticTest, PaymentMode, SystemConfig, Phlebotomist, DiagnosticLab, ConvenienceTier, Hospital } from './types';
-import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircle2, FlaskConical, Send, Radar, Share2, FileText, Key, Info, Banknote, ShieldCheck, Map as MapIcon, ChevronRight, PlusCircle, Volume2 } from 'lucide-react';
-import { TEST_CATALOG } from './constants';
+import { CollectionCall, CallType, CallStatus, DiagnosticTest, PaymentMode, SystemConfig, Phlebotomist, DiagnosticLab, ConvenienceTier, Hospital, Appointment } from './types';
+import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircle2, FlaskConical, Send, Radar, Share2, FileText, Key, Info, Banknote, ShieldCheck, Map as MapIcon, ChevronRight, PlusCircle, Volume2, Lock } from 'lucide-react';
+
 import { RadarMap } from './AdminPanel';
 import { calculateDistance } from './geoUtils';
 
 interface DashboardProps {
   currentUser: Phlebotomist;
   calls: CollectionCall[];
+  appointments: Appointment[];
   config: SystemConfig;
   labs: DiagnosticLab[];
   hospitals: Hospital[];
   phleboList: Phlebotomist[];
+  tests: DiagnosticTest[];
   onCreateCall: (call: Partial<CollectionCall>) => void;
   onUpdateStatus?: (id: string, status: CallStatus) => void;
+  onUpdateAppointmentStatus: (id: string, status: 'COMPLETED' | 'PENDING' | 'SCHEDULED' | 'CANCELLED') => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, config, labs, hospitals, phleboList, onCreateCall, onUpdateStatus }) => {
-  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR'>('QUEUE');
+const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments, config, labs, hospitals, phleboList, tests, onCreateCall, onUpdateStatus, onUpdateAppointmentStatus }) => {
+  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE'>('QUEUE');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
   const [selectedTests, setSelectedTests] = useState<DiagnosticTest[]>([]);
@@ -85,7 +88,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, config, labs,
 
   const filteredTests = useMemo(() => {
     const query = testSearch.toLowerCase();
-    return TEST_CATALOG.filter(t => 
+    return tests.filter(t => 
       t.name.toLowerCase().includes(query) || 
       t.category.toLowerCase().includes(query)
     );
@@ -174,6 +177,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, config, labs,
           <div className="flex items-center gap-4 mt-2">
             <div className="flex bg-white p-1 rounded-2xl border shadow-sm gap-1">
                <button onClick={() => setActiveTab('QUEUE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Queue</button>
+               <button onClick={() => setActiveTab('SCHEDULE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SCHEDULE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Schedule</button>
                <button onClick={() => setActiveTab('RADAR')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'RADAR' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Fleet</button>
             </div>
             <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-2xl border border-green-100">
@@ -196,6 +200,42 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, config, labs,
 
       {activeTab === 'RADAR' ? (
         <RadarMap phleboList={phleboList} activeCalls={calls} />
+      ) : activeTab === 'SCHEDULE' ? (
+        <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Scheduled Collections</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <tr>
+                  <th className="px-6 py-4">Patient</th>
+                  <th className="px-6 py-4">Scheduled For</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {appointments.map(appointment => (
+                  <tr key={appointment.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-6">
+                      <span className="text-sm font-black text-slate-900 block">{appointment.patientName}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">{appointment.address}</span>
+                    </td>
+                    <td className="px-6 py-6">
+                      <span className="text-sm font-black text-slate-900 block">{new Date(appointment.scheduledAt).toLocaleDateString()}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(appointment.scheduledAt).toLocaleTimeString()}</span>
+                    </td>
+                    <td className="px-6 py-6 text-center">
+                      <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${appointment.status === 'SCHEDULED' ? 'bg-blue-50 text-blue-400' : 'bg-green-50 text-green-400'}`}>
+                        {appointment.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
         <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">

@@ -7,7 +7,7 @@ import {
   CallStatus, CollectionCall, Phlebotomist, 
   SystemConfig, CallMetrics, Location, CallType, PaymentMode, TatBracket, DiagnosticTest, StaffRole, UserStatus, Appointment, DiagnosticLab, Hospital
 } from './types';
-import { DEFAULT_CONFIG, MOCK_PHLEBOTOMISTS, TEST_CATALOG, LAB_LOCATION, INITIAL_LABS, PREDEFINED_HOSPITALS } from './constants';
+import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData';
 import { LogoBird } from './LogoBird';
 import { calculateDistance } from './geoUtils';
 
@@ -26,36 +26,38 @@ const App: React.FC = () => {
   const [loginForm, setLoginForm] = useState({ userId: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [activeRoute, setActiveRoute] = useState<MauiRoute>('FIELD');
-  const [config, setConfig] = useState<SystemConfig>(DEFAULT_CONFIG);
-  const [tests, setTests] = useState<DiagnosticTest[]>(TEST_CATALOG);
-  const [labs, setLabs] = useState<DiagnosticLab[]>(INITIAL_LABS);
-  const [hospitals, setHospitals] = useState<Hospital[]>(PREDEFINED_HOSPITALS.map((h, i) => ({ ...h, id: `HOS-${i}` })));
+  const [config, setConfig] = useState<SystemConfig>(INITIAL_CONFIG);
+  const [tests, setTests] = useState<DiagnosticTest[]>(MOCK_TESTS);
+  const [labs, setLabs] = useState<DiagnosticLab[]>(MOCK_LABS);
+  const [hospitals, setHospitals] = useState<Hospital[]>(MOCK_HOSPITALS);
   const [calls, setCalls] = useState<CollectionCall[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [performanceHistory, setPerformanceHistory] = useState<CallMetrics[]>([]);
-  const [allPhlebos, setAllPhlebos] = useState<Phlebotomist[]>(MOCK_PHLEBOTOMISTS);
+  const [allPhlebos, setAllPhlebos] = useState<Phlebotomist[]>([]);
+
   const [currentUser, setCurrentUser] = useState<Phlebotomist | null>(() => {
     return null;
   });
 
+  const fetchData = useCallback(async () => {
+    try {
+      const [callsRes, usersRes] = await Promise.all([
+        fetch('/api/calls'),
+        fetch('/api/users')
+      ]);
+      if (callsRes.ok) setCalls(await callsRes.json());
+      if (usersRes.ok) setAllPhlebos(await usersRes.json());
+    } catch (e) {
+      console.error("Fetch error:", e);
+    }
+  }, []);
+
   // Initial data fetch
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [callsRes, usersRes] = await Promise.all([
-          fetch('/api/calls'),
-          fetch('/api/users')
-        ]);
-        if (callsRes.ok) setCalls(await callsRes.json());
-        if (usersRes.ok) setAllPhlebos(await usersRes.json());
-      } catch (e) {
-        console.error("Fetch error:", e);
-      }
-    };
     fetchData();
     const interval = setInterval(fetchData, 10000); // Poll every 10s
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchData]);
 
   // Sync currentUser with latest allPhlebos state
   useEffect(() => {
@@ -113,11 +115,14 @@ const App: React.FC = () => {
       if (res.ok) {
         setCalls(prev => [newCallObj, ...prev]);
         setToast({ message: `Deployment Active: ${newCallObj.patientName} (PIN: ${newCallObj.verificationCode})`, type: 'success' });
+        fetchData();
       }
     } catch (e) {
       setToast({ message: "Failed to deploy call", type: 'info' });
     }
   }, [labs, currentUser]);
+
+
 
   const handleResendOtp = useCallback(async (callId: string) => {
     const now = Date.now();
@@ -142,84 +147,6 @@ const App: React.FC = () => {
       }
     } catch (e) {}
   }, [currentUser]);
-
-  const handleVerifyOtp = useCallback(async (callId: string, inputPin: string) => {
-    const now = Date.now();
-    let success = false;
-    let errorMsg = '';
-    const call = calls.find(c => c.id === callId);
-    if (!call) return { success, errorMsg: 'Call not found' };
-
-    if (call.isOtpLocked) {
-      return { success: false, errorMsg: 'Security Lock: Too many failed attempts. Contact Dispatch.' };
-    }
-    if (now > call.otpExpiresAt) {
-      return { success: false, errorMsg: 'PIN Expired: Please request a new one.' };
-    }
-
-    if (inputPin === call.verificationCode) {
-      success = true;
-      await fetch(`/api/calls/${callId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
-        body: JSON.stringify({ otpRetryCount: 0 })
-      });
-      setCalls(prev => prev.map(c => c.id === callId ? { ...c, otpRetryCount: 0 } : c));
-    } else {
-      const newRetryCount = call.otpRetryCount + 1;
-      const isLocked = newRetryCount >= 3;
-      errorMsg = isLocked ? 'Security Lock: Node Locked. Contact Dispatch.' : `Invalid PIN. ${3 - newRetryCount} attempts remaining.`;
-      
-      await fetch(`/api/calls/${callId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
-        body: JSON.stringify({ otpRetryCount: newRetryCount, isOtpLocked: isLocked ? 1 : 0 })
-      });
-      setCalls(prev => prev.map(c => c.id === callId ? { ...c, otpRetryCount: newRetryCount, isOtpLocked: isLocked } : c));
-    }
-
-    return { success, errorMsg };
-  }, [calls, currentUser]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginForm.userId, password: loginForm.password })
-      });
-      const data = await res.json();
-      if (data.success) {
-        const user = data.user;
-        if (user.status === 'LOCKED') {
-          setLoginError('Access Restricted: Node Locked');
-          return;
-        }
-        setIsAuthenticated(true);
-        setCurrentUser(user);
-        sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
-        sessionStorage.setItem('MAUI_USER_ID', user.id);
-        if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
-        else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
-        else setActiveRoute('FIELD');
-      } else {
-        setLoginError('Credential Failure: Identity Unknown');
-      }
-    } catch (e) {
-      setLoginError('Network Error: Server Unreachable');
-    }
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    sessionStorage.removeItem('MAUI_SHELL_AUTH');
-    sessionStorage.removeItem('MAUI_USER_ID');
-    setActiveRoute('FIELD');
-    setLoginForm({ userId: '', password: '' });
-  };
 
   const updateCallStatus = async (callId: string, status: CallStatus, phleboId?: string, updates?: Partial<CollectionCall>) => {
     const update: any = { ...updates, status };
@@ -269,6 +196,88 @@ const App: React.FC = () => {
     } catch (e) {}
   };
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const handleVerifyOtp = useCallback(async (callId: string, inputPin: string) => {
+    try {
+      const response = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId, otp: inputPin }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        updateCallStatus(callId, CallStatus.IN_PROGRESS, currentUser!.id);
+        return { success: true, errorMsg: '' };
+      } else {
+        return { success: false, errorMsg: data.message };
+      }
+    } catch (error) {
+      console.error('Error verifying OTP:', error);
+      return { success: false, errorMsg: 'An unexpected error occurred.' };
+    }
+  }, [updateCallStatus]);
+
+
+
+
+
+
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginForm.userId, password: loginForm.password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const user = data.user;
+        if (user.status === 'LOCKED') {
+          setLoginError('Access Restricted: Node Locked');
+          return;
+        }
+        setIsAuthenticated(true);
+        setCurrentUser(user);
+        sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
+        sessionStorage.setItem('MAUI_USER_ID', user.id);
+        if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
+        else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
+        else setActiveRoute('FIELD');
+      } else {
+        setLoginError('Credential Failure: Identity Unknown');
+      }
+    } catch (e) {
+      setLoginError('Network Error: Server Unreachable');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    sessionStorage.removeItem('MAUI_SHELL_AUTH');
+    sessionStorage.removeItem('MAUI_USER_ID');
+    setActiveRoute('FIELD');
+    setLoginForm({ userId: '', password: '' });
+  };
+
   const handleRegisterPhlebo = (p: Partial<Phlebotomist>) => {
     const id = 'P' + Date.now();
     const generatedUsername = (p.name || 'user').toLowerCase().replace(/\s+/g, '');
@@ -289,6 +298,9 @@ const App: React.FC = () => {
     setAllPhlebos(prev => [...prev, newP]);
     setToast({ message: `Staff Provisioned: ${newP.name} (User: ${newP.username})`, type: 'success' });
   };
+
+
+
 
   if (!isAuthenticated || !currentUser) {
     return (
@@ -341,9 +353,11 @@ const App: React.FC = () => {
             appointments={appointments} 
             config={config} 
             history={performanceHistory}
+            tests={tests}
             onUpdateStatus={updateCallStatus} 
             onResendOtp={handleResendOtp}
             onVerifyOtp={handleVerifyOtp}
+
             onUpdateLocation={(id, loc) => {
               fetch(`/api/users/${id}`, {
                 method: 'PATCH',
@@ -353,10 +367,10 @@ const App: React.FC = () => {
               setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc, lastActive: Date.now()} : p));
             }}
             onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now(), status: 'SCHEDULED'} as any])}
-            onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a))}
+            onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])}
           />
         )}
-        {activeRoute === 'DISPATCH' && <Dashboard currentUser={currentUser} calls={calls} config={config} labs={labs} hospitals={hospitals} phleboList={allPhlebos} onCreateCall={handleCreateCall} onUpdateStatus={updateCallStatus} />}
+        {activeRoute === 'DISPATCH' && <Dashboard currentUser={currentUser} calls={calls} appointments={appointments} config={config} labs={labs} hospitals={hospitals} tests={tests} phleboList={allPhlebos} onCreateCall={handleCreateCall} onUpdateStatus={updateCallStatus} onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])} />}
         {activeRoute === 'ADMIN' && (
           <AdminPanel 
             config={config} 
