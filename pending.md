@@ -1,0 +1,3 @@
+# Pending Tasks
+
+-  in the follow project all the user account are stoeed username and passwoed in the js or the code so i don't want that the main account htat must in the data base is dev:dev that has acces to the main portal fix that don't store all the user inot the code rather store inside the ata base we created which will prefer or us....

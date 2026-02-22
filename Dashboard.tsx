@@ -73,8 +73,11 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
   }, [newCall.generatedDestination, newCall.selectedLabId, labs]);
 
   const activeTier = useMemo(() => {
+    if (!config.convenienceMatrix || config.convenienceMatrix.length === 0) {
+      return { minKm: 0, maxKm: 999, fee: config.flatCollectionCharge || 0, label: 'Standard' };
+    }
     return config.convenienceMatrix.find(t => distanceToSelectedHub >= t.minKm && distanceToSelectedHub < t.maxKm) || config.convenienceMatrix[config.convenienceMatrix.length - 1];
-  }, [distanceToSelectedHub, config.convenienceMatrix]);
+  }, [distanceToSelectedHub, config.convenienceMatrix, config.flatCollectionCharge]);
 
   useEffect(() => {
     if (isModalOpen) {

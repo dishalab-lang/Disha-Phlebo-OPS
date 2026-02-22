@@ -97,7 +97,7 @@ const App: React.FC = () => {
       ...call,
       id: 'D' + Date.now(),
       status: CallStatus.PENDING,
-      labId: call.labId || labs[0].id,
+      labId: call.labId || (labs.length > 0 ? labs[0].id : ''),
       placedAt: now,
       verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
       otpGeneratedAt: now,
@@ -158,7 +158,7 @@ const App: React.FC = () => {
       const now = Date.now();
       const lab = labs.find(l => l.id === (calls.find(c => c.id === callId)?.labId)) || labs[0];
       const call = calls.find(c => c.id === callId);
-      if (call) {
+      if (call && lab) {
         const dist = calculateDistance(call.destination, lab.location);
         const phlebo = allPhlebos.find(p => p.id === (phleboId || call.assignedPhleboId));
         const tatTarget = config.tatBrackets.find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes;
