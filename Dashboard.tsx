@@ -21,7 +21,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments, config, labs, hospitals, phleboList, tests, onCreateCall, onUpdateStatus, onUpdateAppointmentStatus }) => {
-  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE'>('QUEUE');
+  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE' | 'COMPLETED'>('QUEUE');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
   const [selectedTests, setSelectedTests] = useState<DiagnosticTest[]>([]);
@@ -182,6 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                <button onClick={() => setActiveTab('QUEUE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Queue</button>
                <button onClick={() => setActiveTab('SCHEDULE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SCHEDULE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Schedule</button>
                <button onClick={() => setActiveTab('RADAR')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'RADAR' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Fleet</button>
+               <button onClick={() => setActiveTab('COMPLETED')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'COMPLETED' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Completed</button>
             </div>
             <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-2xl border border-green-100">
               <div className="w-2 h-2 bg-brand-green rounded-full animate-pulse" />
@@ -242,7 +243,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
       ) : (
         <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Active deployments</h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeTab === 'COMPLETED' ? 'Completed Collections' : 'Active deployments'}</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -254,7 +255,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {calls.map(call => (
+                {calls.filter(c => activeTab === 'COMPLETED' ? c.status === CallStatus.COMPLETED : c.status !== CallStatus.COMPLETED).map(call => (
                   <tr key={call.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-6">
                       <span className="text-sm font-black text-slate-900 block">{call.patientName}</span>

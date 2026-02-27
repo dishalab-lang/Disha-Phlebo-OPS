@@ -161,7 +161,7 @@ const App: React.FC = () => {
       if (call && lab) {
         const dist = calculateDistance(call.destination, lab.location);
         const phlebo = allPhlebos.find(p => p.id === (phleboId || call.assignedPhleboId));
-        const tatTarget = config.tatBrackets.find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes;
+        const tatTarget = (config.tatBrackets || []).find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes || 180;
         const totalMins = (now - call.placedAt) / 60000;
         const rate = totalMins <= tatTarget ? config.withinTatRate : config.outsideTatRate;
         
@@ -278,7 +278,7 @@ const App: React.FC = () => {
     setLoginForm({ userId: '', password: '' });
   };
 
-  const handleRegisterPhlebo = (p: Partial<Phlebotomist>) => {
+  const handleRegisterPhlebo = async (p: Partial<Phlebotomist>) => {
     const id = 'P' + Date.now();
     const generatedUsername = (p.name || 'user').toLowerCase().replace(/\s+/g, '');
     const newP: Phlebotomist = {
@@ -295,8 +295,22 @@ const App: React.FC = () => {
       shiftStart: p.shiftStart || '09:00',
       shiftEnd: p.shiftEnd || '18:00'
     } as Phlebotomist;
-    setAllPhlebos(prev => [...prev, newP]);
-    setToast({ message: `Staff Provisioned: ${newP.name} (User: ${newP.username})`, type: 'success' });
+
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
+        body: JSON.stringify(newP)
+      });
+      if (res.ok) {
+        setAllPhlebos(prev => [...prev, newP]);
+        setToast({ message: `Staff Provisioned: ${newP.name} (User: ${newP.username})`, type: 'success' });
+      } else {
+        setToast({ message: "Failed to provision staff", type: 'info' });
+      }
+    } catch (e) {
+      setToast({ message: "Network error while provisioning staff", type: 'info' });
+    }
   };
 
 

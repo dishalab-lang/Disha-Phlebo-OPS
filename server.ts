@@ -121,10 +121,12 @@ async function startServer() {
 
   // Auth API
   app.post("/api/login", (req, res) => {
+    console.log("Login endpoint hit with body:", req.body);
     const { username, password } = req.body;
     db.get("SELECT * FROM users WHERE username = ? AND password = ?", [username, password], (err, user) => {
       if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
+        console.error("Login DB Error:", err);
+        res.status(500).json({ success: false, message: "Database error 123", error: String(err) });
       } else if (user) {
         res.json({ success: true, user });
       } else {
@@ -137,15 +139,29 @@ async function startServer() {
   app.get("/api/calls", (req, res) => {
     db.all("SELECT * FROM calls ORDER BY placedAt DESC", [], (err, calls) => {
       if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
+        console.error("Calls DB Error:", err);
+        res.status(500).json({ success: false, message: "Database error", error: String(err) });
       } else {
-        res.json(calls.map((c: any) => ({
-          ...c,
-          destination: { lat: c.destLat, lng: c.destLng, address: c.destAddress },
-          billing: JSON.parse(c.billingJson),
-          isPriority: !!c.isPriority,
-          isOtpLocked: !!c.isOtpLocked
-        })));
+        try {
+          res.json(calls.map((c: any) => {
+            let parsedBilling = null;
+            try {
+              parsedBilling = c.billingJson ? JSON.parse(c.billingJson) : null;
+            } catch (e) {
+              console.error("Error parsing billingJson for call", c.id, e);
+            }
+            return {
+              ...c,
+              destination: { lat: c.destLat, lng: c.destLng, address: c.destAddress },
+              billing: parsedBilling,
+              isPriority: !!c.isPriority,
+              isOtpLocked: !!c.isOtpLocked
+            };
+          }));
+        } catch (e) {
+          console.error("Error mapping calls:", e);
+          res.status(500).json({ success: false, message: "Error mapping calls", error: String(e) });
+        }
       }
     });
   });
@@ -173,6 +189,37 @@ async function startServer() {
     });
   });
 
+  app.post("/api/verify-otp", (req, res) => {
+    const { callId, otp } = req.body;
+    db.get("SELECT * FROM calls WHERE id = ?", [callId], (err, call: any) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: "Database error" });
+      }
+      if (!call) {
+        return res.status(404).json({ success: false, message: "Call not found" });
+      }
+      if (call.isOtpLocked) {
+        return res.status(403).json({ success: false, message: "OTP locked due to too many failed attempts" });
+      }
+      if (Date.now() > call.otpExpiresAt) {
+        return res.status(400).json({ success: false, message: "OTP expired" });
+      }
+      if (call.verificationCode !== otp) {
+        const newRetryCount = (call.otpRetryCount || 0) + 1;
+        const isLocked = newRetryCount >= 3;
+        db.run("UPDATE calls SET otpRetryCount = ?, isOtpLocked = ? WHERE id = ?", [newRetryCount, isLocked ? 1 : 0, callId]);
+        return res.status(400).json({ success: false, message: "Invalid OTP" });
+      }
+      
+      db.run("UPDATE calls SET status = 'IN_PROGRESS' WHERE id = ?", [callId], (err) => {
+        if (err) {
+          return res.status(500).json({ success: false, message: "Database error" });
+        }
+        res.json({ success: true });
+      });
+    });
+  });
+
   app.patch("/api/calls/:id", (req, res) => {
     const { id } = req.params;
     const updates = req.body;
@@ -196,6 +243,27 @@ async function startServer() {
         res.json(users);
       }
     });
+  });
+
+  app.post("/api/users", (req, res) => {
+    const user = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO users (
+        id, name, phone, email, username, password, role, status, labId, isAvailable, grade, monthlyEarnings, completedCalls, rejectedCalls, shiftStart, shiftEnd
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      user.id, user.name, user.phone, user.email, user.username, user.password, user.role, user.status, user.labId, 
+      user.isAvailable ? 1 : 0, user.grade, user.monthlyEarnings, user.completedCalls, user.rejectedCalls, 
+      user.shiftStart, user.shiftEnd,
+      (err) => {
+        if (err) {
+          res.status(500).json({ success: false, message: "Database error" });
+        } else {
+          res.json({ success: true, user });
+        }
+      }
+    );
   });
 
   app.patch("/api/users/:id", (req, res) => {

@@ -93,7 +93,7 @@ db.serialize(() => {
           phone: '0000000000',
           email: 'dev@disha.com',
           username: 'dev',
-          password: '123',
+          password: 'dev',
           role: 'DEVELOPER',
           status: 'APPROVED',
           labId: 'LAB01',

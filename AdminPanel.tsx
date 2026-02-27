@@ -181,17 +181,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleAddTatBracket = () => {
-    const newBrackets = [...editedConfig.tatBrackets, { maxKm: 0, tatMinutes: 0 }].sort((a, b) => a.maxKm - b.maxKm);
+    const newBrackets = [...(editedConfig.tatBrackets || []), { maxKm: 0, tatMinutes: 0 }].sort((a, b) => a.maxKm - b.maxKm);
     setEditedConfig({ ...editedConfig, tatBrackets: newBrackets });
   };
 
   const handleRemoveTatBracket = (index: number) => {
-    const newBrackets = editedConfig.tatBrackets.filter((_, i) => i !== index);
+    const newBrackets = (editedConfig.tatBrackets || []).filter((_, i) => i !== index);
     setEditedConfig({ ...editedConfig, tatBrackets: newBrackets });
   };
 
   const handleUpdateTatBracket = (index: number, field: keyof TatBracket, value: number) => {
-    const newBrackets = editedConfig.tatBrackets.map((b, i) => i === index ? { ...b, [field]: value } : b);
+    const newBrackets = (editedConfig.tatBrackets || []).map((b, i) => i === index ? { ...b, [field]: value } : b);
     setEditedConfig({ ...editedConfig, tatBrackets: newBrackets });
   };
 
@@ -679,7 +679,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 leading-relaxed">Dynamic TAT allocation based on radial distance from assignment hub.</p>
                 
                 <div className="space-y-4 flex-1 overflow-y-auto pr-2 no-scrollbar mb-6">
-                   {editedConfig.tatBrackets.sort((a,b) => a.maxKm - b.maxKm).map((bracket, idx) => (
+                   {(editedConfig.tatBrackets || []).sort((a,b) => a.maxKm - b.maxKm).map((bracket, idx) => (
                       <div key={idx} className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 flex items-center gap-4 animate-slide-up">
                          <div className="flex-1">
                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Max Radius (KM)</label>
@@ -831,6 +831,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Price Tier (₹)</label>
                     <input required type="number" value={editingTest.price} onChange={e => setEditingTest({...editingTest, price: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xl text-brand-purple" />
+                 </div>
+                 <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Patient Phone Number</label>
+                    <input type="tel" value={editingTest.patientPhone || ''} onChange={e => setEditingTest({...editingTest, patientPhone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" placeholder="e.g. 9876543210" />
                  </div>
                  <button type="submit" className="w-full bg-brand-green text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl">Update Catalogue</button>
               </form>

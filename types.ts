@@ -34,6 +34,7 @@ export interface DiagnosticTest {
   category: string;
   price: number;
   isUrgent?: boolean;
+  patientPhone?: string;
 }
 
 export interface ConvenienceTier {
