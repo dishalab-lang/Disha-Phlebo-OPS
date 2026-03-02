@@ -19,6 +19,7 @@ export enum PaymentMode {
   CASH = 'CASH',
   UPI = 'UPI',
   CARD = 'CARD',
+  LINK = 'LINK',
   UNPAID = 'UNPAID'
 }
 

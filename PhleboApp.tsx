@@ -7,11 +7,13 @@ import {
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
   UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight,
   Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink, Radar,
-  Mic, Square, Play, Volume2
+  Mic, Square, Play, Volume2, CreditCard, Link
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
 
 import { LogoBird } from './LogoBird';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 interface PhleboAppProps {
   currentUser: Phlebotomist;
@@ -76,6 +78,30 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       return timeDiff <= monthMs;
     });
   }, [history, tripFilter, currentUser.id]);
+
+  const handleDownloadInvoice = (trip: CallMetrics) => {
+    const doc = new jsPDF() as any;
+    doc.setFontSize(18);
+    doc.text('DISHA DIAGNOSTICS - INVOICE', 20, 20);
+    doc.setFontSize(10);
+    doc.text(`Patient: ${trip.patientName}`, 20, 30);
+    doc.text(`Date: ${new Date(trip.timestamp).toLocaleString()}`, 20, 35);
+    doc.text(`Phlebotomist: ${trip.phleboName}`, 20, 40);
+    doc.text(`Payment Mode: ${trip.paymentMode}`, 20, 45);
+    
+    doc.autoTable({
+      startY: 55,
+      head: [['Description', 'Amount']],
+      body: [
+        ['Diagnostic Services', `Rs. ${trip.revenue}`],
+        ['Total', `Rs. ${trip.revenue}`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 92, 246] }
+    });
+    
+    doc.save(`Invoice_${trip.patientName.replace(/\s+/g, '_')}_${trip.timestamp}.pdf`);
+  };
 
   const personalTripStats = useMemo(() => {
     return {
@@ -381,6 +407,33 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  )}
 
                  <div className="space-y-4">
+                    {activeCall.status === CallStatus.VISITING && activeCall.billing.paymentStatus === 'PENDING' && (
+                       <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
+                          <div className="flex justify-between items-center">
+                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Collection</span>
+                             <span className="text-sm font-black text-slate-900">₹{activeCall.billing.totalAmount.toLocaleString()}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                             <button onClick={() => setShowUpiModal(true)} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-purple transition-all">
+                                <QrCode size={24} className="text-brand-purple" />
+                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">UPI QR</span>
+                             </button>
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
+                                <Wallet size={24} className="text-brand-green" />
+                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Cash</span>
+                             </button>
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
+                                <CreditCard size={24} className="text-blue-500" />
+                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Card</span>
+                             </button>
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
+                                <Link size={24} className="text-orange-500" />
+                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Link</span>
+                             </button>
+                          </div>
+                       </div>
+                    )}
+
                     {activeCall.status === CallStatus.ACCEPTED && (
                        <button onClick={handleArrived} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95">
                           <Navigation size={24} /> Confirm Arrival
@@ -512,9 +565,15 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                           <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(trip.timestamp).toLocaleDateString()} • {trip.distance.toFixed(1)}km</span>
                        </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end gap-2">
                        <div className="text-sm font-black text-brand-green">+₹{trip.incentive.toFixed(0)}</div>
                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{trip.totalTat}m TAT</span>
+                       <button 
+                         onClick={() => handleDownloadInvoice(trip)}
+                         className="text-[8px] font-black uppercase text-brand-purple bg-brand-purple/10 px-2 py-1 rounded-lg border border-brand-purple/20 flex items-center gap-1"
+                       >
+                         <Download size={10} /> Invoice
+                       </button>
                     </div>
                  </div>
               )) : (

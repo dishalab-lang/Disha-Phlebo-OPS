@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { io } from 'socket.io-client';
 import { 
   LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info
 } from 'lucide-react';
@@ -52,11 +53,43 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Initial data fetch
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Initial data fetch and Socket.io setup
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Poll every 10s
-    return () => clearInterval(interval);
+    
+    const socket = io();
+    
+    socket.on('call_created', (call) => {
+      setCalls(prev => {
+        if (prev.some(c => c.id === call.id)) return prev;
+        return [call, ...prev];
+      });
+    });
+    
+    socket.on('call_updated', (updates) => {
+      setCalls(prev => prev.map(c => c.id === updates.id ? { ...c, ...updates } : c));
+    });
+    
+    socket.on('user_updated', (updates) => {
+      setAllPhlebos(prev => prev.map(p => p.id === updates.id ? { ...p, ...updates } : p));
+    });
+
+    socket.on('notification', (notif) => {
+      setToast({ message: notif.message, type: notif.type || 'info' });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [fetchData]);
 
   // Sync currentUser with latest allPhlebos state
@@ -67,15 +100,6 @@ const App: React.FC = () => {
       if (user) setCurrentUser(user);
     }
   }, [allPhlebos]);
-
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
-
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
 
   const recordMetrics = useCallback((metrics: CallMetrics) => {
     setPerformanceHistory(prev => [metrics, ...prev]);
@@ -114,7 +138,7 @@ const App: React.FC = () => {
       });
       if (res.ok) {
         setCalls(prev => [newCallObj, ...prev]);
-        setToast({ message: `Deployment Active: ${newCallObj.patientName} (PIN: ${newCallObj.verificationCode})`, type: 'success' });
+        setToast({ message: `Deployment Active: ${newCallObj.patientName}`, type: 'success' });
         fetchData();
       }
     } catch (e) {

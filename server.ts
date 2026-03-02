@@ -5,6 +5,8 @@ import sqlite3 from "sqlite3";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { GoogleGenAI } from '@google/genai';
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 
 
@@ -99,12 +101,22 @@ async function startServer() {
   });
   const app = express();
   const PORT = 3000;
+  const server = createServer(app);
+  const io = new Server(server, { cors: { origin: "*" } });
+
+  io.on("connection", (socket) => {
+    console.log("Client connected:", socket.id);
+    socket.on("disconnect", () => {
+      console.log("Client disconnected:", socket.id);
+    });
+  });
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
   // Middleware for logging actions
   const logger = (req: any, res: any, next: any) => {
+    if (!req.path.startsWith('/api')) return next();
     const userId = req.headers['x-user-id'] || 'anonymous';
     const action = `${req.method} ${req.path}`;
     db.run("INSERT INTO logs (timestamp, userId, action, details, ip) VALUES (?, ?, ?, ?, ?)", 
@@ -117,7 +129,7 @@ async function startServer() {
       });
   };
 
-  app.use("/api", logger);
+  app.use(logger);
 
   // Auth API
   app.post("/api/login", (req, res) => {
@@ -184,6 +196,7 @@ async function startServer() {
       if (err) {
         res.status(500).json({ success: false, message: "Database error" });
       } else {
+        io.emit('call_created', call);
         res.json({ success: true });
       }
     });
@@ -215,6 +228,7 @@ async function startServer() {
         if (err) {
           return res.status(500).json({ success: false, message: "Database error" });
         }
+        io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
         res.json({ success: true });
       });
     });
@@ -229,6 +243,21 @@ async function startServer() {
       if (err) {
         res.status(500).json({ success: false, message: "Database error" });
       } else {
+        io.emit('call_updated', { id, ...updates });
+        
+        // Automated Events
+        if (updates.status === 'ACCEPTED') {
+          io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
+        } else if (updates.status === 'VISITING') {
+          db.get("SELECT verificationCode FROM calls WHERE id = ?", [id], (err, row: any) => {
+            if (!err && row) {
+              io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${row.verificationCode}`, type: 'success' });
+            }
+          });
+        } else if (updates.status === 'COMPLETED') {
+          io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
+        }
+
         res.json({ success: true });
       }
     });
@@ -281,6 +310,7 @@ async function startServer() {
       if (err) {
         res.status(500).json({ success: false, message: "Database error" });
       } else {
+        io.emit('user_updated', { id, ...updates });
         res.json({ success: true });
       }
     });
@@ -362,7 +392,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
   } catch (error) {

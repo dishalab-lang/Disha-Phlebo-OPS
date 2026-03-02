@@ -5,6 +5,8 @@ import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircl
 
 import { RadarMap } from './AdminPanel';
 import { calculateDistance } from './geoUtils';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 interface DashboardProps {
   currentUser: Phlebotomist;
@@ -26,6 +28,29 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
   const [testSearch, setTestSearch] = useState('');
   const [selectedTests, setSelectedTests] = useState<DiagnosticTest[]>([]);
   const [currentTime, setCurrentTime] = useState(Date.now());
+
+  const handleDownloadInvoice = (call: CollectionCall) => {
+    const doc = new jsPDF() as any;
+    doc.setFontSize(18);
+    doc.text('DISHA DIAGNOSTICS - INVOICE', 20, 20);
+    doc.setFontSize(10);
+    doc.text(`Patient: ${call.patientName}`, 20, 30);
+    doc.text(`Date: ${new Date(call.placedAt).toLocaleString()}`, 20, 35);
+    doc.text(`Payment Mode: ${call.billing.paymentMode}`, 20, 45);
+    
+    doc.autoTable({
+      startY: 55,
+      head: [['Description', 'Amount']],
+      body: [
+        ['Diagnostic Services', `Rs. ${call.billing.totalAmount}`],
+        ['Total', `Rs. ${call.billing.totalAmount}`]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 92, 246] }
+    });
+    
+    doc.save(`Invoice_${call.patientName.replace(/\s+/g, '_')}_${call.placedAt}.pdf`);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -264,7 +289,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                     <td className="px-6 py-6 text-center">
                       <div className="flex flex-col items-center gap-1">
                         <span className={`text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest ${call.isOtpLocked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-brand-purple/5 text-brand-purple border-brand-purple/20'}`}>
-                          {call.isOtpLocked ? 'LOCKED' : call.verificationCode}
+                          {call.isOtpLocked ? 'LOCKED' : (call.status === CallStatus.VISITING ? call.verificationCode : '****')}
                         </span>
                         {!call.isOtpLocked && call.status === CallStatus.VISITING && (
                           <span className="text-[7px] font-black text-slate-400 uppercase">
@@ -285,6 +310,15 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                             title="Play Voice Note"
                           >
                             <Volume2 size={14} />
+                          </button>
+                        )}
+                        {call.status === CallStatus.COMPLETED && (
+                          <button 
+                            onClick={() => handleDownloadInvoice(call)}
+                            className="p-2 bg-brand-green/10 text-brand-green rounded-lg hover:bg-brand-green/20 transition-all"
+                            title="Download Invoice"
+                          >
+                            <FileText size={14} />
                           </button>
                         )}
                       </div>
