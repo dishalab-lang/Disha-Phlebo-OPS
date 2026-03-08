@@ -42,12 +42,19 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [callsRes, usersRes] = await Promise.all([
+      const [callsRes, usersRes, metricsRes, configRes] = await Promise.all([
         fetch('/api/calls'),
-        fetch('/api/users')
+        fetch('/api/users'),
+        fetch('/api/metrics'),
+        fetch('/api/config')
       ]);
       if (callsRes.ok) setCalls(await callsRes.json());
       if (usersRes.ok) setAllPhlebos(await usersRes.json());
+      if (metricsRes.ok) setPerformanceHistory(await metricsRes.json());
+      if (configRes.ok) {
+        const savedConfig = await configRes.json();
+        if (savedConfig) setConfig(savedConfig);
+      }
     } catch (e) {
       console.error("Fetch error:", e);
     }
@@ -82,6 +89,13 @@ const App: React.FC = () => {
     socket.on('user_updated', (updates) => {
       setAllPhlebos(prev => prev.map(p => p.id === updates.id ? { ...p, ...updates } : p));
     });
+    
+    socket.on('metrics_updated', (metric) => {
+      setPerformanceHistory(prev => {
+        if (prev.some(m => m.callId === metric.callId)) return prev;
+        return [metric, ...prev];
+      });
+    });
 
     socket.on('notification', (notif) => {
       setToast({ message: notif.message, type: notif.type || 'info' });
@@ -101,18 +115,27 @@ const App: React.FC = () => {
     }
   }, [allPhlebos]);
 
-  const recordMetrics = useCallback((metrics: CallMetrics) => {
-    setPerformanceHistory(prev => [metrics, ...prev]);
-    setAllPhlebos(prev => prev.map(p => {
-      if (p.id === metrics.phleboId) {
-        return {
-          ...p,
-          completedCalls: p.completedCalls + 1,
-          monthlyEarnings: p.monthlyEarnings + metrics.incentive
-        };
-      }
-      return p;
-    }));
+  const recordMetrics = useCallback(async (metrics: CallMetrics) => {
+    try {
+      await fetch('/api/metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(metrics)
+      });
+      setPerformanceHistory(prev => [metrics, ...prev]);
+      setAllPhlebos(prev => prev.map(p => {
+        if (p.id === metrics.phleboId) {
+          return {
+            ...p,
+            completedCalls: p.completedCalls + 1,
+            monthlyEarnings: p.monthlyEarnings + metrics.incentive
+          };
+        }
+        return p;
+      }));
+    } catch (e) {
+      console.error("Failed to record metrics:", e);
+    }
   }, []);
 
   const handleCreateCall = useCallback(async (call: Partial<CollectionCall>) => {
@@ -197,7 +220,7 @@ const App: React.FC = () => {
           totalTat: Math.round(totalMins),
           targetTat: tatTarget,
           distance: dist,
-          incentive: dist * rate * (call.isPriority ? 1.5 : 1),
+          incentive: (config.baseIncentive || 0) + (dist * rate * (call.isPriority ? 1.5 : 1)),
           revenue: call.billing.totalAmount,
           paymentMode: call.billing.paymentMode,
           timestamp: now,
@@ -243,18 +266,26 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callId, otp: inputPin }),
       });
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.slice(0, 100));
+        return { success: false, errorMsg: `Server Error: Received unexpected response format (${response.status})` };
+      }
+
       const data = await response.json();
       if (data.success) {
         updateCallStatus(callId, CallStatus.IN_PROGRESS, currentUser!.id);
         return { success: true, errorMsg: '' };
       } else {
-        return { success: false, errorMsg: data.message };
+        return { success: false, errorMsg: data.message || 'Verification failed' };
       }
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      return { success: false, errorMsg: 'An unexpected error occurred.' };
+      return { success: false, errorMsg: 'Connection error. Please check your network.' };
     }
-  }, [updateCallStatus]);
+  }, [updateCallStatus, currentUser]);
 
 
 
@@ -290,6 +321,22 @@ const App: React.FC = () => {
       }
     } catch (e) {
       setLoginError('Network Error: Server Unreachable');
+    }
+  };
+
+  const handleUpdateConfig = async (newConfig: SystemConfig) => {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig)
+      });
+      if (res.ok) {
+        setConfig(newConfig);
+        setToast({ message: "Enterprise standards synchronized", type: 'success' });
+      }
+    } catch (e) {
+      setToast({ message: "Failed to sync config", type: 'info' });
     }
   };
 
@@ -415,7 +462,7 @@ const App: React.FC = () => {
             labs={labs}
             tests={tests}
             hospitals={hospitals}
-            onUpdateConfig={setConfig} 
+            onUpdateConfig={handleUpdateConfig} 
             onRegisterLab={(l, a) => {
               const lid = 'LAB'+Date.now();
               setLabs(prev => [...prev, {...l, id: lid} as DiagnosticLab]);

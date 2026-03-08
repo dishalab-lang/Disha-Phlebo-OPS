@@ -153,6 +153,7 @@ export interface SystemConfig {
   convenienceMatrix: ConvenienceTier[];
   geofenceRadiusMeters: number;
   flatCollectionCharge: number;
+  baseIncentive: number;
   announcement?: string | null;
   securityPin: string;
 }

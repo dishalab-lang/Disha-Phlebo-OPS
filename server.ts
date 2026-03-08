@@ -97,6 +97,24 @@ async function startServer() {
         key TEXT PRIMARY KEY,
         value TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        callId TEXT,
+        phleboId TEXT,
+        phleboName TEXT,
+        patientName TEXT,
+        totalTat INTEGER,
+        targetTat INTEGER,
+        distance REAL,
+        incentive REAL,
+        revenue REAL,
+        paymentMode TEXT,
+        timestamp INTEGER,
+        isPremiumIncentive INTEGER,
+        voiceNote TEXT,
+        status TEXT
+      );
     `);
   });
   const app = express();
@@ -119,17 +137,99 @@ async function startServer() {
     if (!req.path.startsWith('/api')) return next();
     const userId = req.headers['x-user-id'] || 'anonymous';
     const action = `${req.method} ${req.path}`;
+    
+    // Use a try-catch for JSON.stringify and ensure next() is called even on DB error
+    let details = "";
+    try {
+      details = JSON.stringify(req.body);
+    } catch (e) {
+      details = "[Unserializable Body]";
+    }
+
     db.run("INSERT INTO logs (timestamp, userId, action, details, ip) VALUES (?, ?, ?, ?, ?)", 
-      [Date.now(), userId, action, JSON.stringify(req.body), req.ip], 
+      [Date.now(), userId, action, details, req.ip], 
       (err) => {
         if (err) {
           console.error('Failed to log action:', err);
         }
-        next();
       });
+    next();
   };
 
   app.use(logger);
+
+  // API 404 handler - must be after all API routes but before Vite
+  const api404 = (req: any, res: any, next: any) => {
+    if (req.path.startsWith('/api')) {
+      console.log(`API 404: ${req.method} ${req.path}`);
+      return res.status(404).json({ success: false, message: `API route not found: ${req.method} ${req.path}` });
+    }
+    next();
+  };
+
+  app.get("/api/test", (req, res) => {
+    res.json({ success: true, message: "API is reachable" });
+  });
+
+  app.get("/api/config", (req, res) => {
+    db.get("SELECT value FROM config WHERE key = 'system_config'", [], (err, row: any) => {
+      if (err) {
+        res.status(500).json({ success: false, message: "Database error" });
+      } else if (row) {
+        res.json(JSON.parse(row.value));
+      } else {
+        res.json(null);
+      }
+    });
+  });
+
+  app.post("/api/config", (req, res) => {
+    const config = req.body;
+    db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('system_config', ?)", [JSON.stringify(config)], (err) => {
+      if (err) {
+        res.status(500).json({ success: false, message: "Database error" });
+      } else {
+        res.json({ success: true });
+      }
+    });
+  });
+
+  app.get("/api/metrics", (req, res) => {
+    db.all("SELECT * FROM metrics ORDER BY timestamp DESC", [], (err, rows) => {
+      if (err) {
+        res.status(500).json({ success: false, message: "Database error" });
+      } else {
+        res.json((rows as any[]).map(row => ({
+          ...row,
+          isPremiumIncentive: !!row.isPremiumIncentive
+        })));
+      }
+    });
+  });
+
+  app.post("/api/metrics", (req, res) => {
+    const m = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO metrics (
+        callId, phleboId, phleboName, patientName, totalTat, targetTat, 
+        distance, incentive, revenue, paymentMode, timestamp, 
+        isPremiumIncentive, voiceNote, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      m.callId, m.phleboId, m.phleboName, m.patientName, m.totalTat, m.targetTat,
+      m.distance, m.incentive, m.revenue, m.paymentMode, m.timestamp,
+      m.isPremiumIncentive ? 1 : 0, m.voiceNote, m.status,
+      (err) => {
+        if (err) {
+          res.status(500).json({ success: false, message: "Database error" });
+        } else {
+          io.emit('metrics_updated', m);
+          res.json({ success: true });
+        }
+      }
+    );
+  });
 
   // Auth API
   app.post("/api/login", (req, res) => {
@@ -202,36 +302,53 @@ async function startServer() {
     });
   });
 
-  app.post("/api/verify-otp", (req, res) => {
-    const { callId, otp } = req.body;
-    db.get("SELECT * FROM calls WHERE id = ?", [callId], (err, call: any) => {
-      if (err) {
-        return res.status(500).json({ success: false, message: "Database error" });
+  app.post("/api/verify-otp", (req, res, next) => {
+    try {
+      console.log("Verify OTP endpoint hit with body:", req.body);
+      const { callId, otp } = req.body;
+      if (!callId || !otp) {
+        console.log("Verify OTP: Missing callId or otp");
+        return res.status(400).json({ success: false, message: "Missing callId or otp" });
       }
-      if (!call) {
-        return res.status(404).json({ success: false, message: "Call not found" });
-      }
-      if (call.isOtpLocked) {
-        return res.status(403).json({ success: false, message: "OTP locked due to too many failed attempts" });
-      }
-      if (Date.now() > call.otpExpiresAt) {
-        return res.status(400).json({ success: false, message: "OTP expired" });
-      }
-      if (call.verificationCode !== otp) {
-        const newRetryCount = (call.otpRetryCount || 0) + 1;
-        const isLocked = newRetryCount >= 3;
-        db.run("UPDATE calls SET otpRetryCount = ?, isOtpLocked = ? WHERE id = ?", [newRetryCount, isLocked ? 1 : 0, callId]);
-        return res.status(400).json({ success: false, message: "Invalid OTP" });
-      }
-      
-      db.run("UPDATE calls SET status = 'IN_PROGRESS' WHERE id = ?", [callId], (err) => {
+      db.get("SELECT * FROM calls WHERE id = ?", [callId], (err, call: any) => {
         if (err) {
+          console.error("Verify OTP DB Error:", err);
           return res.status(500).json({ success: false, message: "Database error" });
         }
-        io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
-        res.json({ success: true });
+        if (!call) {
+          console.log("Verify OTP: Call not found", callId);
+          return res.status(404).json({ success: false, message: "Call not found" });
+        }
+        console.log("Verify OTP: Found call", call.id, "Status:", call.status);
+        if (call.isOtpLocked) {
+          console.log("Verify OTP: Call is locked");
+          return res.status(403).json({ success: false, message: "OTP locked due to too many failed attempts" });
+        }
+        if (Date.now() > call.otpExpiresAt) {
+          console.log("Verify OTP: OTP expired");
+          return res.status(400).json({ success: false, message: "OTP expired" });
+        }
+        if (call.verificationCode !== otp) {
+          console.log("Verify OTP: Invalid OTP. Expected:", call.verificationCode, "Got:", otp);
+          const newRetryCount = (call.otpRetryCount || 0) + 1;
+          const isLocked = newRetryCount >= 3;
+          db.run("UPDATE calls SET otpRetryCount = ?, isOtpLocked = ? WHERE id = ?", [newRetryCount, isLocked ? 1 : 0, callId]);
+          return res.status(400).json({ success: false, message: "Invalid OTP" });
+        }
+        
+        console.log("Verify OTP: Success. Updating status to IN_PROGRESS");
+        db.run("UPDATE calls SET status = 'IN_PROGRESS' WHERE id = ?", [callId], (err) => {
+          if (err) {
+            console.error("Verify OTP Update Status Error:", err);
+            return res.status(500).json({ success: false, message: "Database error" });
+          }
+          io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
+          res.json({ success: true });
+        });
       });
-    });
+    } catch (e) {
+      next(e);
+    }
   });
 
   app.patch("/api/calls/:id", (req, res) => {
@@ -376,6 +493,17 @@ async function startServer() {
         res.json({ success: true, user, calls });
       });
     });
+  });
+
+  app.use(api404);
+
+  // Global error handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("Unhandled Error:", err);
+    if (req.path.startsWith('/api')) {
+      return res.status(500).json({ success: false, message: "Internal Server Error", error: String(err) });
+    }
+    next(err);
   });
 
   // Vite middleware for development

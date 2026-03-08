@@ -359,12 +359,82 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="space-y-6 animate-slide-up">
            <div className="flex justify-between items-center bg-white p-8 rounded-[2rem] border shadow-sm">
               <div>
-                 <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Mission History Ledger</h3>
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Complete record of diagnostic collection trips</p>
+                 <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Mission Control Center</h3>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Real-time progress of all active and completed diagnostic collection trips</p>
+              </div>
+           </div>
+
+           {/* Active Missions Section */}
+           <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-50 bg-brand-purple/5">
+                 <h4 className="text-[10px] font-black text-brand-purple uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Radar size={14} className="animate-pulse" /> Live Active Missions
+                 </h4>
+              </div>
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left">
+                    <thead className="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                       <tr>
+                          <th className="px-8 py-5">Patient</th>
+                          <th className="px-8 py-5">Personnel</th>
+                          <th className="px-8 py-5 text-center">Status</th>
+                          <th className="px-8 py-5 text-right">Progress</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                       {activeCalls.filter(c => c.status !== CallStatus.COMPLETED && c.status !== CallStatus.REJECTED).length > 0 ? (
+                          activeCalls.filter(c => c.status !== CallStatus.COMPLETED && c.status !== CallStatus.REJECTED).map((call) => {
+                             const phlebo = phleboList.find(p => p.id === call.assignedPhleboId);
+                             return (
+                                <tr key={call.id} className="hover:bg-slate-50 transition-all">
+                                   <td className="px-8 py-6">
+                                      <span className="text-sm font-black text-slate-900">{call.patientName}</span>
+                                      <span className="block text-[9px] font-bold text-slate-400 uppercase">{call.destination.address}</span>
+                                   </td>
+                                   <td className="px-8 py-6">
+                                      <span className="text-sm font-black text-brand-purple uppercase">{phlebo?.name || 'Searching...'}</span>
+                                   </td>
+                                   <td className="px-8 py-6 text-center">
+                                      <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${
+                                         call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' :
+                                         call.status === CallStatus.ACCEPTED ? 'bg-blue-50 text-blue-500 border-blue-100' :
+                                         call.status === CallStatus.VISITING ? 'bg-orange-50 text-orange-500 border-orange-100' :
+                                         call.status === CallStatus.IN_PROGRESS ? 'bg-brand-purple/10 text-brand-purple border-brand-purple/20' :
+                                         'bg-green-50 text-brand-green border-green-100'
+                                      }`}>
+                                         {call.status}
+                                      </span>
+                                   </td>
+                                   <td className="px-8 py-6 text-right">
+                                      <div className="w-full max-w-[100px] ml-auto bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                         <div 
+                                            className={`h-full transition-all duration-500 ${
+                                               call.status === CallStatus.PENDING ? 'w-[10%] bg-slate-300' :
+                                               call.status === CallStatus.ACCEPTED ? 'w-[30%] bg-blue-400' :
+                                               call.status === CallStatus.VISITING ? 'w-[50%] bg-orange-400' :
+                                               call.status === CallStatus.IN_PROGRESS ? 'w-[75%] bg-brand-purple' :
+                                               'w-[90%] bg-brand-green'
+                                            }`}
+                                         />
+                                      </div>
+                                   </td>
+                                </tr>
+                             );
+                          })
+                       ) : (
+                          <tr>
+                             <td colSpan={4} className="px-8 py-12 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest">No active missions in the grid.</td>
+                          </tr>
+                       )}
+                    </tbody>
+                 </table>
               </div>
            </div>
 
            <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-50">
+                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Mission History Ledger</h4>
+              </div>
               <div className="overflow-x-auto">
                  <table className="w-full text-left">
                     <thead className="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -649,7 +719,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> Enterprise Standards</h3>
                 <div className="space-y-8">
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-3 gap-6">
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Within TAT Rate (₹/KM)</label>
                         <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
@@ -657,6 +727,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Outside TAT Rate (₹/KM)</label>
                         <input type="number" value={editedConfig.outsideTatRate} onChange={e => setEditedConfig({...editedConfig, outsideTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Base Incentive (₹)</label>
+                        <input type="number" value={editedConfig.baseIncentive} onChange={e => setEditedConfig({...editedConfig, baseIncentive: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
                   </div>
                   <div>

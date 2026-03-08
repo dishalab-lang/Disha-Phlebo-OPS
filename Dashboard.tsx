@@ -280,51 +280,75 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {calls.filter(c => activeTab === 'COMPLETED' ? c.status === CallStatus.COMPLETED : c.status !== CallStatus.COMPLETED).map(call => (
-                  <tr key={call.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-6">
-                      <span className="text-sm font-black text-slate-900 block">{call.patientName}</span>
-                      <span className="text-[9px] font-bold text-slate-400 uppercase">{call.billing.tests.length} Tests</span>
-                    </td>
-                    <td className="px-6 py-6 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className={`text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest ${call.isOtpLocked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-brand-purple/5 text-brand-purple border-brand-purple/20'}`}>
-                          {call.isOtpLocked ? 'LOCKED' : (call.status === CallStatus.VISITING ? call.verificationCode : '****')}
-                        </span>
-                        {!call.isOtpLocked && call.status === CallStatus.VISITING && (
-                          <span className="text-[7px] font-black text-slate-400 uppercase">
-                            Exp in {Math.max(0, Math.floor((call.otpExpiresAt - currentTime) / 1000))}s
+                {calls.filter(c => activeTab === 'COMPLETED' ? c.status === CallStatus.COMPLETED : c.status !== CallStatus.COMPLETED).map(call => {
+                  const phlebo = phleboList.find(p => p.id === call.assignedPhleboId);
+                  return (
+                    <tr key={call.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-6">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-black text-slate-900 block">{call.patientName}</span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">{phlebo ? `Assigned: ${phlebo.name}` : 'Awaiting Assignment'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-6 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest ${call.isOtpLocked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-brand-purple/5 text-brand-purple border-brand-purple/20'}`}>
+                            {call.isOtpLocked ? 'LOCKED' : (call.status === CallStatus.VISITING ? call.verificationCode : '****')}
                           </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-6 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 'bg-brand-purple/5 text-brand-purple'}`}>
-                          {call.status}
-                        </span>
-                        {call.voiceNote && (
-                          <button 
-                            onClick={() => new Audio(call.voiceNote).play()}
-                            className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
-                            title="Play Voice Note"
-                          >
-                            <Volume2 size={14} />
-                          </button>
-                        )}
-                        {call.status === CallStatus.COMPLETED && (
-                          <button 
-                            onClick={() => handleDownloadInvoice(call)}
-                            className="p-2 bg-brand-green/10 text-brand-green rounded-lg hover:bg-brand-green/20 transition-all"
-                            title="Download Invoice"
-                          >
-                            <FileText size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {!call.isOtpLocked && call.status === CallStatus.VISITING && (
+                            <span className="text-[7px] font-black text-slate-400 uppercase">
+                              Exp in {Math.max(0, Math.floor((call.otpExpiresAt - currentTime) / 1000))}s
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-6 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="flex items-center justify-center gap-2">
+                            <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                               call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 
+                               call.status === CallStatus.IN_PROGRESS ? 'bg-brand-purple text-white border-brand-purple' :
+                               'bg-brand-purple/5 text-brand-purple'
+                            }`}>
+                              {call.status}
+                            </span>
+                            {call.voiceNote && (
+                              <button 
+                                onClick={() => new Audio(call.voiceNote).play()}
+                                className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
+                                title="Play Voice Note"
+                              >
+                                <Volume2 size={14} />
+                              </button>
+                            )}
+                            {call.status === CallStatus.COMPLETED && (
+                              <button 
+                                onClick={() => handleDownloadInvoice(call)}
+                                className="p-2 bg-brand-green/10 text-brand-green rounded-lg hover:bg-brand-green/20 transition-all"
+                                title="Download Invoice"
+                              >
+                                <FileText size={14} />
+                              </button>
+                            )}
+                          </div>
+                          {call.status !== CallStatus.COMPLETED && (
+                            <div className="w-24 bg-slate-100 h-1 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full transition-all duration-500 ${
+                                  call.status === CallStatus.PENDING ? 'w-[10%] bg-slate-300' :
+                                  call.status === CallStatus.ACCEPTED ? 'w-[30%] bg-blue-400' :
+                                  call.status === CallStatus.VISITING ? 'w-[50%] bg-orange-400' :
+                                  call.status === CallStatus.IN_PROGRESS ? 'w-[75%] bg-brand-purple' :
+                                  'w-[90%] bg-brand-green'
+                                }`}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -343,7 +367,19 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                 </div>
                 
                 <div className="bg-slate-50 p-6 rounded-3xl border">
-                   <p className="text-[10px] font-black uppercase text-slate-400 mb-4 tracking-widest">Select Diagnostic Tests</p>
+                   <div className="flex justify-between items-center mb-4">
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Select Diagnostic Tests</p>
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                          type="text" 
+                          placeholder="Search tests..." 
+                          value={testSearch} 
+                          onChange={(e) => setTestSearch(e.target.value)}
+                          className="pl-9 pr-4 py-2 bg-white border border-slate-100 rounded-xl text-[10px] font-bold outline-none focus:ring-2 ring-brand-purple w-40 lg:w-64"
+                        />
+                      </div>
+                   </div>
                    <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto no-scrollbar">
                       {filteredTests.map(test => {
                         const isSelected = !!selectedTests.find(t => t.id === test.id);

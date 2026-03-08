@@ -5,7 +5,7 @@ import {
   MapPin, Navigation, PackageCheck, AlertCircle, Clock, 
   Wallet, QrCode, Camera, FlaskConical, X, Key, Phone, 
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
-  UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight,
+  UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight, Fingerprint,
   Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink, Radar,
   Mic, Square, Play, Volume2, CreditCard, Link
 } from 'lucide-react';
@@ -36,7 +36,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   onUpdateStatus, onResendOtp, onVerifyOtp, onUpdateLocation, onBookAppointment, onUpdateAppointmentStatus 
 }) => {
   const [activeTab, setActiveTab] = useState<'TASKS' | 'TRIPS' | 'SCHEDULE'>('TASKS');
-  const [activeCall, setActiveCall] = useState<CollectionCall | null>(null);
+  const [selectedActiveCallId, setSelectedActiveCallId] = useState<string | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [isSimulatingGps, setIsSimulatingGps] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
@@ -61,8 +61,17 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 
   const [tripFilter, setTripFilter] = useState<'DAY' | 'WEEK' | 'MONTH'>('DAY');
 
-  const myCurrentCall = calls.find(c => c.assignedPhleboId === currentUser.id && ![CallStatus.COMPLETED, CallStatus.REJECTED].includes(c.status));
-  const availableCalls = calls.filter(c => c.status === CallStatus.PENDING && (!currentUser.labId || c.labId === currentUser.labId));
+  const myActiveCalls = useMemo(() => 
+    calls.filter(c => c.assignedPhleboId === currentUser?.id && ![CallStatus.COMPLETED, CallStatus.REJECTED].includes(c.status)),
+    [calls, currentUser?.id]
+  );
+
+  const activeCall = useMemo(() => 
+    myActiveCalls.find(c => c.id === selectedActiveCallId) || myActiveCalls[0] || null,
+    [myActiveCalls, selectedActiveCallId]
+  );
+
+  const availableCalls = calls.filter(c => c.status === CallStatus.PENDING && (!currentUser?.labId || c.labId === currentUser?.labId));
   
   const myTrips = useMemo(() => {
     const now = Date.now();
@@ -71,13 +80,13 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     const monthMs = 30 * dayMs;
 
     return history.filter(h => {
-      if (h.phleboId !== currentUser.id) return false;
+      if (h.phleboId !== currentUser?.id) return false;
       const timeDiff = now - h.timestamp;
       if (tripFilter === 'DAY') return timeDiff <= dayMs;
       if (tripFilter === 'WEEK') return timeDiff <= weekMs;
       return timeDiff <= monthMs;
     });
-  }, [history, tripFilter, currentUser.id]);
+  }, [history, tripFilter, currentUser?.id]);
 
   const handleDownloadInvoice = (trip: CallMetrics) => {
     const doc = new jsPDF() as any;
@@ -111,7 +120,13 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     };
   }, [myTrips]);
 
-  useEffect(() => { setActiveCall(myCurrentCall || null); }, [myCurrentCall]);
+  useEffect(() => { 
+    if (myActiveCalls.length > 0 && !selectedActiveCallId) {
+      setSelectedActiveCallId(myActiveCalls[0].id);
+    } else if (myActiveCalls.length === 0) {
+      setSelectedActiveCallId(null);
+    }
+  }, [myActiveCalls, selectedActiveCallId]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -155,7 +170,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     }
   };
 
-  const handleCollect = async () => {
+  const handleVerifyAndStart = async () => {
     if (!activeCall) return;
     
     const { success, errorMsg } = await onVerifyOtp(activeCall.id, verificationInput);
@@ -164,13 +179,16 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       alert(errorMsg);
       return;
     }
+    setVerificationInput('');
+  };
 
+  const handleCompleteCollection = () => {
+    if (!activeCall) return;
     if (!activeCall.visitPhoto || !activeCall.samplePhoto) {
       alert("Evidence Required: Capture Visit Proof and Sample Photo first.");
       return;
     }
     onUpdateStatus(activeCall.id, CallStatus.COLLECTED, currentUser.id);
-    setVerificationInput('');
   };
 
   const handleNavigate = () => {
@@ -320,7 +338,35 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
              <button onClick={() => setIsSimulatingGps(!isSimulatingGps)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${isSimulatingGps ? 'bg-brand-purple text-white' : 'bg-slate-50 text-slate-500'}`}>{isSimulatingGps ? 'Stop Sim' : 'Start Sim'}</button>
           </div>
 
-          {activeCall ? (
+          {myActiveCalls.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                  <PackageCheck size={16} className="text-brand-green" /> My Active Tasks
+                </h3>
+                <span className="text-[10px] font-black text-slate-400 uppercase">{myActiveCalls.length} In Progress</span>
+              </div>
+              
+              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                {myActiveCalls.map(call => (
+                  <button 
+                    key={call.id}
+                    onClick={() => setSelectedActiveCallId(call.id)}
+                    className={`flex-shrink-0 px-6 py-4 rounded-2xl border-2 transition-all text-left min-w-[200px] ${selectedActiveCallId === call.id ? 'bg-brand-purple text-white border-brand-purple shadow-lg' : 'bg-white text-slate-600 border-slate-100 hover:border-brand-purple/30'}`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[8px] font-black uppercase opacity-60">{call.status.replace('_', ' ')}</span>
+                      {call.isPriority && <Zap size={10} className="text-orange-400" />}
+                    </div>
+                    <p className="text-sm font-black truncate">{call.patientName}</p>
+                    <p className="text-[9px] font-bold opacity-70 truncate mt-1">{call.destination.address}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeCall && (
             <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up ${currentTime - activeCall.placedAt > activeCall.estimatedTatMinutes * 60000 ? 'border-red-500' : 'border-slate-50'}`}>
               <div className={`${activeCall.isPriority ? 'brand-gradient' : 'bg-brand-purple'} p-8 text-white relative`}>
                  <div className="absolute top-6 right-8 text-right">
@@ -441,11 +487,20 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                     )}
                     {activeCall.status === CallStatus.VISITING && (
                        <button 
-                          onClick={handleCollect} 
-                          disabled={activeCall.billing.paymentStatus === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto} 
-                          className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${activeCall.billing.paymentStatus === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto ? 'bg-brand-green text-white' : 'bg-slate-100 text-slate-300'}`}
+                          onClick={handleVerifyAndStart} 
+                          disabled={activeCall.billing.paymentStatus === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || verificationInput.length < 4} 
+                          className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${activeCall.billing.paymentStatus === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
                        >
-                          <CheckCircle2 size={24} /> Complete Collection
+                          <Fingerprint size={24} /> Verify & Start Collection
+                       </button>
+                    )}
+
+                    {activeCall.status === CallStatus.IN_PROGRESS && (
+                       <button 
+                          onClick={handleCompleteCollection} 
+                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
+                       >
+                          <CheckCircle2 size={24} /> Finish Collection
                        </button>
                     )}
                     {activeCall.status === CallStatus.COLLECTED && (
@@ -471,59 +526,58 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  </div>
               </div>
             </div>
-          ) : (
-            <div className="space-y-6 animate-slide-up">
-               <div className="flex items-center justify-between px-2">
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                    <Radar size={16} className="text-brand-purple animate-pulse" /> Available Broadcasts
-                  </h3>
-                  <span className="text-[10px] font-black text-slate-400 uppercase">{availableCalls.length} Tasks Nearby</span>
-               </div>
+          )}
+
+          <div className="space-y-6 animate-slide-up pt-4">
+             <div className="flex items-center justify-between px-2">
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                  <Radar size={16} className="text-brand-purple animate-pulse" /> Available Broadcasts
+                </h3>
+                <span className="text-[10px] font-black text-slate-400 uppercase">{availableCalls.length} Tasks Nearby</span>
+             </div>
+             
+             {availableCalls.length > 0 ? availableCalls.map(call => {
+               const distance = currentUser.currentLocation ? calculateDistance(currentUser.currentLocation, call.destination) : null;
                
-               {availableCalls.length > 0 ? availableCalls.map(call => {
-                 const distance = currentUser.currentLocation ? calculateDistance(currentUser.currentLocation, call.destination) : null;
-                 
-                 return (
-                   <div key={call.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between hover:border-brand-purple transition-all group gap-6">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                           <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${call.isPriority ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-500'}`}>
-                             {call.isPriority ? 'URGENT' : 'STANDARD'}
+               return (
+                 <div key={call.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between hover:border-brand-purple transition-all group gap-6">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                         <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${call.isPriority ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-500'}`}>
+                           {call.isPriority ? 'URGENT' : 'STANDARD'}
+                         </span>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{call.billing.tests.length} Services</span>
+                         {distance !== null && (
+                           <span className="text-[9px] font-black text-brand-purple uppercase tracking-widest ml-auto sm:ml-0">
+                             {distance.toFixed(1)} km away
                            </span>
-                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{call.billing.tests.length} Services</span>
-                           {distance !== null && (
-                             <span className="text-[9px] font-black text-brand-purple uppercase tracking-widest ml-auto sm:ml-0">
-                               {distance.toFixed(1)} km away
-                             </span>
-                           )}
-                        </div>
-                        <h4 className="text-2xl font-black text-slate-900">{call.patientName}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-1">
-                          <MapPin size={10} /> {call.destination.address}
-                        </p>
+                         )}
                       </div>
-                      <div className="w-full sm:w-auto flex flex-col items-center gap-2">
-                        <button onClick={() => handleAccept(call.id)} className="w-full sm:w-auto bg-brand-green text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-lg group-hover:scale-105 transition-all">
-                          Accept Task
-                        </button>
-                        <span className="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em]">First-come basis</span>
-                      </div>
-                   </div>
-                 );
-               }) : (
-                 <div className="flex flex-col items-center justify-center py-40 text-slate-300">
-                    <div className="relative">
-                      <Smartphone size={64} className="opacity-10 mb-6" />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Radar size={32} className="opacity-20 animate-ping" />
-                      </div>
+                      <h4 className="text-2xl font-black text-slate-900">{call.patientName}</h4>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-1">
+                        <MapPin size={10} /> {call.destination.address}
+                      </p>
                     </div>
-                    <p className="text-xs font-black uppercase tracking-[0.4em]">Scanning for Broadcasts...</p>
+                    <div className="w-full sm:w-auto flex flex-col items-center gap-2">
+                      <button onClick={() => handleAccept(call.id)} className="w-full sm:w-auto bg-brand-green text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-lg group-hover:scale-105 transition-all">
+                        Accept Task
+                      </button>
+                      <span className="text-[7px] font-black text-slate-300 uppercase tracking-[0.2em]">First-come basis</span>
+                    </div>
                  </div>
-               )}
-            </div>
-          )
-}
+               );
+             }) : (
+               <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                  <div className="relative">
+                    <Smartphone size={64} className="opacity-10 mb-6" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Radar size={32} className="opacity-20 animate-ping" />
+                    </div>
+                  </div>
+                  <p className="text-xs font-black uppercase tracking-[0.4em]">Scanning for Broadcasts...</p>
+               </div>
+             )}
+          </div>
         </>
       )}
 
