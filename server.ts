@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import sqlite3 from "sqlite3";
 import { fileURLToPath } from "url";
@@ -508,6 +507,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -515,7 +515,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(join(__dirname, "dist")));
-    app.get("*", (req, res) => {
+    app.use((req, res) => {
       res.sendFile(join(__dirname, "dist/index.html"));
     });
   }
