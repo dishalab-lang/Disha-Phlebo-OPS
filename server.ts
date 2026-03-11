@@ -301,7 +301,7 @@ async function startServer() {
     });
   });
 
-  app.post("/api/verify-otp", (req, res, next) => {
+  app.post("/api/calls/verify", (req, res, next) => {
     try {
       console.log("Verify OTP endpoint hit with body:", req.body);
       const { callId, otp } = req.body;
@@ -485,7 +485,7 @@ async function startServer() {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
-      db.all("SELECT * FROM calls WHERE assignedPhleboId = ? ORDER BY collectedAt DESC", [id], (err, calls) => {
+      db.all("SELECT c.*, m.distance, m.totalTat as tripTime FROM calls c LEFT JOIN metrics m ON c.id = m.callId WHERE c.assignedPhleboId = ? ORDER BY c.collectedAt DESC", [id], (err, calls) => {
         if (err) {
           return res.status(500).json({ success: false, message: "Database error" });
         }

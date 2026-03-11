@@ -79,14 +79,20 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     const weekMs = 7 * dayMs;
     const monthMs = 30 * dayMs;
 
+    console.log("PhleboApp history:", history);
+    console.log("PhleboApp currentUser:", currentUser);
+
     return history.filter(h => {
-      if (h.phleboId !== currentUser?.id) return false;
+      const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || currentUser?.role === 'DEVELOPER';
+      if (!isAdmin && h.phleboId !== currentUser?.id) return false;
       const timeDiff = now - h.timestamp;
       if (tripFilter === 'DAY') return timeDiff <= dayMs;
       if (tripFilter === 'WEEK') return timeDiff <= weekMs;
       return timeDiff <= monthMs;
     });
   }, [history, tripFilter, currentUser?.id]);
+
+  console.log("PhleboApp myTrips:", myTrips);
 
   const handleDownloadInvoice = (trip: CallMetrics) => {
     const doc = new jsPDF() as any;

@@ -5,6 +5,7 @@ import { Plus, Building2, Home, MapPin, Search, X, Zap, Truck, Clock, CheckCircl
 
 import { RadarMap } from './AdminPanel';
 import { calculateDistance } from './geoUtils';
+import { calculateConvenienceFee } from './calculators';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 
@@ -98,11 +99,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
   }, [newCall.generatedDestination, newCall.selectedLabId, labs]);
 
   const activeTier = useMemo(() => {
-    if (!config.convenienceMatrix || config.convenienceMatrix.length === 0) {
-      return { minKm: 0, maxKm: 999, fee: config.flatCollectionCharge || 0, label: 'Standard' };
-    }
-    return config.convenienceMatrix.find(t => distanceToSelectedHub >= t.minKm && distanceToSelectedHub < t.maxKm) || config.convenienceMatrix[config.convenienceMatrix.length - 1];
-  }, [distanceToSelectedHub, config.convenienceMatrix, config.flatCollectionCharge]);
+    return calculateConvenienceFee(distanceToSelectedHub, config);
+  }, [distanceToSelectedHub, config]);
 
   useEffect(() => {
     if (isModalOpen) {

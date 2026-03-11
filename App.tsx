@@ -11,6 +11,7 @@ import {
 import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData';
 import { LogoBird } from './LogoBird';
 import { calculateDistance } from './geoUtils';
+import { calculateTatTarget, calculateIncentive } from './calculators';
 
 // Components
 import Dashboard from './Dashboard';
@@ -142,7 +143,7 @@ const App: React.FC = () => {
     const now = Date.now();
     const newCallObj: CollectionCall = {
       ...call,
-      id: 'D' + Date.now(),
+      id: 'D' + Date.now() + Math.random().toString(36).substring(2, 7),
       status: CallStatus.PENDING,
       labId: call.labId || (labs.length > 0 ? labs[0].id : ''),
       placedAt: now,
@@ -208,9 +209,8 @@ const App: React.FC = () => {
       if (call && lab) {
         const dist = calculateDistance(call.destination, lab.location);
         const phlebo = allPhlebos.find(p => p.id === (phleboId || call.assignedPhleboId));
-        const tatTarget = (config.tatBrackets || []).find(b => dist <= b.maxKm)?.tatMinutes || config.standardTatMinutes || 180;
+        const tatTarget = calculateTatTarget(dist, config);
         const totalMins = (now - call.placedAt) / 60000;
-        const rate = totalMins <= tatTarget ? config.withinTatRate : config.outsideTatRate;
         
         const metrics: CallMetrics = {
           callId: call.id,
@@ -220,7 +220,7 @@ const App: React.FC = () => {
           totalTat: Math.round(totalMins),
           targetTat: tatTarget,
           distance: dist,
-          incentive: (config.baseIncentive || 0) + (dist * rate * (call.isPriority ? 1.5 : 1)),
+          incentive: calculateIncentive(dist, totalMins, tatTarget, !!call.isPriority, config),
           revenue: call.billing.totalAmount,
           paymentMode: call.billing.paymentMode,
           timestamp: now,
@@ -261,7 +261,7 @@ const App: React.FC = () => {
 
   const handleVerifyOtp = useCallback(async (callId: string, inputPin: string) => {
     try {
-      const response = await fetch('/api/verify-otp', {
+      const response = await fetch('/api/calls/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callId, otp: inputPin }),
@@ -350,7 +350,7 @@ const App: React.FC = () => {
   };
 
   const handleRegisterPhlebo = async (p: Partial<Phlebotomist>) => {
-    const id = 'P' + Date.now();
+    const id = 'P' + Date.now() + Math.random().toString(36).substring(2, 7);
     const generatedUsername = (p.name || 'user').toLowerCase().replace(/\s+/g, '');
     const newP: Phlebotomist = {
       ...p,
@@ -451,7 +451,7 @@ const App: React.FC = () => {
               });
               setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, currentLocation: loc, lastActive: Date.now()} : p));
             }}
-            onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now(), status: 'SCHEDULED'} as any])}
+            onBookAppointment={(a) => setAppointments(prev => [...prev, {...a, id: 'A'+Date.now()+Math.random().toString(36).substring(2, 7), status: 'SCHEDULED'} as any])}
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])}
           />
         )}
@@ -464,7 +464,7 @@ const App: React.FC = () => {
             hospitals={hospitals}
             onUpdateConfig={handleUpdateConfig} 
             onRegisterLab={(l, a) => {
-              const lid = 'LAB'+Date.now();
+              const lid = 'LAB'+Date.now()+Math.random().toString(36).substring(2, 7);
               setLabs(prev => [...prev, {...l, id: lid} as DiagnosticLab]);
               if(a) handleRegisterPhlebo({...a, labId: lid});
             }}

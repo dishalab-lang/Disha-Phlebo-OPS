@@ -140,7 +140,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddTest = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateTests([...tests, { ...newTest, id: 'T' + Date.now() } as DiagnosticTest]);
+    onUpdateTests([...tests, { ...newTest, id: 'T' + Date.now() + Math.random().toString(36).substring(2, 7) } as DiagnosticTest]);
     setIsAddingTest(false);
     setNewTest({ name: '', category: 'Pathology', price: 0 });
   };
@@ -168,7 +168,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddHospital = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateHospitals([...hospitals, { ...newHospital, id: 'HOS' + Date.now() } as Hospital]);
+    onUpdateHospitals([...hospitals, { ...newHospital, id: 'HOS' + Date.now() + Math.random().toString(36).substring(2, 7) } as Hospital]);
     setIsAddingHospital(false);
     setNewHospital({ name: '', address: '', lat: 19.0760, lng: 72.8777 });
   };
@@ -181,7 +181,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleAddTatBracket = () => {
-    const newBrackets = [...(editedConfig.tatBrackets || []), { maxKm: 0, tatMinutes: 0 }].sort((a, b) => a.maxKm - b.maxKm);
+    const newBrackets = [...(editedConfig.tatBrackets || []), { maxKm: 0, tatMinutes: 0 }];
     setEditedConfig({ ...editedConfig, tatBrackets: newBrackets });
   };
 
@@ -753,7 +753,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 leading-relaxed">Dynamic TAT allocation based on radial distance from assignment hub.</p>
                 
                 <div className="space-y-4 flex-1 overflow-y-auto pr-2 no-scrollbar mb-6">
-                   {(editedConfig.tatBrackets || []).sort((a,b) => a.maxKm - b.maxKm).map((bracket, idx) => (
+                   {(editedConfig.tatBrackets || []).map((bracket, idx) => (
                       <div key={idx} className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100 flex items-center gap-4 animate-slide-up">
                          <div className="flex-1">
                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Max Radius (KM)</label>
@@ -779,7 +779,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                    ))}
                 </div>
-                <button onClick={() => { onUpdateConfig(editedConfig); alert("TAT Matrix saved successfully."); }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
+                <button onClick={() => { onUpdateConfig({...editedConfig, tatBrackets: [...(editedConfig.tatBrackets || [])].sort((a,b) => a.maxKm - b.maxKm)}); alert("TAT Matrix saved successfully."); }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
                    <Save size={18} /> Save Matrix
                 </button>
               </div>
@@ -861,14 +861,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
                                 (doc as any).autoTable({
                                   startY: 50,
-                                  head: [['ID', 'Patient', 'Status', 'Collected At', 'TAT (Mins)']],
-                                  body: calls.map((c: any) => [
-                                    c.id,
-                                    c.patientName,
-                                    c.status,
-                                    new Date(c.collectedAt).toLocaleString(),
-                                    c.collectedAt ? ((c.collectedAt - c.placedAt) / 60000).toFixed(2) : 'N/A'
-                                  ]),
+                                  head: [['ID', 'Patient', 'Status', 'Collected At', 'TAT / Trip Time (Mins)', 'Km Traveled']],
+                                  body: calls.map((c: any) => {
+                                    const tat = c.collectedAt && c.placedAt ? ((c.collectedAt - c.placedAt) / 60000).toFixed(2) : 'N/A';
+                                    const tripTime = c.collectedAt && c.acceptedAt ? ((c.collectedAt - c.acceptedAt) / 60000).toFixed(2) : 'N/A';
+                                    return [
+                                      c.id,
+                                      c.patientName,
+                                      c.status,
+                                      c.collectedAt ? new Date(c.collectedAt).toLocaleString() : 'N/A',
+                                      `${tat}\n${tripTime}`,
+                                      c.distance ? c.distance.toFixed(2) : 'N/A'
+                                    ];
+                                  }),
                                 });
 
                                 doc.save(`report-${user.id}.pdf`);
