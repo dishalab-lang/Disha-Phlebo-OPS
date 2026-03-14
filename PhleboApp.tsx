@@ -152,6 +152,27 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     return () => clearInterval(interval);
   }, [currentUser.id, isSimulatingGps]);
 
+  useEffect(() => {
+    if (activeCall && currentUser.currentLocation && !isSimulatingGps) {
+      const isInside = isWithinGeofence(currentUser.currentLocation, activeCall.destination, config.geofenceRadiusMeters);
+      
+      if (activeCall.status === CallStatus.VISITING || activeCall.status === CallStatus.IN_PROGRESS) {
+        if (!isInside) {
+          const dist = calculateDistance(currentUser.currentLocation, activeCall.destination);
+          setGeoError(`Alert: You are ${dist.toFixed(2)}km outside the collection radius.`);
+        } else {
+          setGeoError(null);
+        }
+      } else if (activeCall.status === CallStatus.ACCEPTED) {
+        if (isInside) {
+          setGeoError(null);
+        }
+      }
+    } else if (!activeCall) {
+      setGeoError(null);
+    }
+  }, [activeCall, currentUser.currentLocation, config.geofenceRadiusMeters, isSimulatingGps]);
+
   const handleAccept = (id: string) => onUpdateStatus(id, CallStatus.ACCEPTED, currentUser.id);
 
   const handleArrived = async () => {

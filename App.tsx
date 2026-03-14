@@ -22,7 +22,11 @@ type MauiRoute = 'FIELD' | 'DISPATCH' | 'ADMIN' | 'PROFILE';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('MAUI_SHELL_AUTH') === 'true';
+    try {
+      return sessionStorage.getItem('MAUI_SHELL_AUTH') === 'true';
+    } catch (e) {
+      return false;
+    }
   });
   
   const [loginForm, setLoginForm] = useState({ userId: '', password: '' });
@@ -43,11 +47,13 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [callsRes, usersRes, metricsRes, configRes] = await Promise.all([
+      const [callsRes, usersRes, metricsRes, configRes, labsRes, hospitalsRes] = await Promise.all([
         fetch('/api/calls'),
         fetch('/api/users'),
         fetch('/api/metrics'),
-        fetch('/api/config')
+        fetch('/api/config'),
+        fetch('/api/labs'),
+        fetch('/api/hospitals')
       ]);
       if (callsRes.ok) setCalls(await callsRes.json());
       if (usersRes.ok) setAllPhlebos(await usersRes.json());
@@ -55,6 +61,14 @@ const App: React.FC = () => {
       if (configRes.ok) {
         const savedConfig = await configRes.json();
         if (savedConfig) setConfig(savedConfig);
+      }
+      if (labsRes.ok) {
+        const fetchedLabs = await labsRes.json();
+        if (fetchedLabs && fetchedLabs.length > 0) setLabs(fetchedLabs);
+      }
+      if (hospitalsRes.ok) {
+        const fetchedHospitals = await hospitalsRes.json();
+        if (fetchedHospitals && fetchedHospitals.length > 0) setHospitals(fetchedHospitals);
       }
     } catch (e) {
       console.error("Fetch error:", e);
@@ -109,11 +123,13 @@ const App: React.FC = () => {
 
   // Sync currentUser with latest allPhlebos state
   useEffect(() => {
-    const id = sessionStorage.getItem('MAUI_USER_ID');
-    if (id) {
-      const user = allPhlebos.find(p => p.id === id);
-      if (user) setCurrentUser(user);
-    }
+    try {
+      const id = sessionStorage.getItem('MAUI_USER_ID');
+      if (id) {
+        const user = allPhlebos.find(p => p.id === id);
+        if (user) setCurrentUser(user);
+      }
+    } catch (e) {}
   }, [allPhlebos]);
 
   const recordMetrics = useCallback(async (metrics: CallMetrics) => {
@@ -311,8 +327,10 @@ const App: React.FC = () => {
         }
         setIsAuthenticated(true);
         setCurrentUser(user);
-        sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
-        sessionStorage.setItem('MAUI_USER_ID', user.id);
+        try {
+          sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
+          sessionStorage.setItem('MAUI_USER_ID', user.id);
+        } catch (e) {}
         if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
         else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
         else setActiveRoute('FIELD');
@@ -343,8 +361,10 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
-    sessionStorage.removeItem('MAUI_SHELL_AUTH');
-    sessionStorage.removeItem('MAUI_USER_ID');
+    try {
+      sessionStorage.removeItem('MAUI_SHELL_AUTH');
+      sessionStorage.removeItem('MAUI_USER_ID');
+    } catch (e) {}
     setActiveRoute('FIELD');
     setLoginForm({ userId: '', password: '' });
   };

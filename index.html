@@ -18,7 +18,6 @@
     
     <link rel="manifest" href="manifest.json">
     
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -76,9 +75,24 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
-    <link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-50 text-slate-900 antialiased">
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        fetch('/api/log-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ msg, url, line, col, stack: error ? error.stack : null })
+        });
+      };
+      window.addEventListener('unhandledrejection', function(event) {
+        fetch('/api/log-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ msg: 'Unhandled Rejection', reason: event.reason ? event.reason.stack || event.reason : null })
+        });
+      });
+    </script>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
 </body>

@@ -97,6 +97,23 @@ async function startServer() {
         value TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS labs (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        lat REAL,
+        lng REAL,
+        geofenceRadiusMeters INTEGER,
+        adminId TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS hospitals (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        address TEXT,
+        lat REAL,
+        lng REAL
+      );
+
       CREATE TABLE IF NOT EXISTS metrics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         callId TEXT,
@@ -166,6 +183,11 @@ async function startServer() {
     next();
   };
 
+  app.post("/api/log-error", (req, res) => {
+    console.error("CLIENT ERROR:", req.body);
+    res.json({ success: true });
+  });
+
   app.get("/api/test", (req, res) => {
     res.json({ success: true, message: "API is reachable" });
   });
@@ -190,6 +212,72 @@ async function startServer() {
       } else {
         res.json({ success: true });
       }
+    });
+  });
+
+  app.get("/api/labs", (req, res) => {
+    db.all("SELECT * FROM labs", [], (err, rows) => {
+      if (err) {
+        res.status(500).json({ success: false, message: "Database error" });
+      } else {
+        res.json((rows as any[]).map(r => ({
+          id: r.id,
+          name: r.name,
+          location: { lat: r.lat, lng: r.lng },
+          geofenceRadiusMeters: r.geofenceRadiusMeters,
+          adminId: r.adminId
+        })));
+      }
+    });
+  });
+
+  app.post("/api/labs", (req, res) => {
+    const labs = req.body; // Expecting array of labs
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION");
+      db.run("DELETE FROM labs");
+      const stmt = db.prepare("INSERT INTO labs (id, name, lat, lng, geofenceRadiusMeters, adminId) VALUES (?, ?, ?, ?, ?, ?)");
+      labs.forEach((l: any) => {
+        stmt.run(l.id, l.name, l.location.lat, l.location.lng, l.geofenceRadiusMeters, l.adminId);
+      });
+      stmt.finalize();
+      db.run("COMMIT", (err) => {
+        if (err) {
+          res.status(500).json({ success: false, message: "Database error" });
+        } else {
+          res.json({ success: true });
+        }
+      });
+    });
+  });
+
+  app.get("/api/hospitals", (req, res) => {
+    db.all("SELECT * FROM hospitals", [], (err, rows) => {
+      if (err) {
+        res.status(500).json({ success: false, message: "Database error" });
+      } else {
+        res.json(rows);
+      }
+    });
+  });
+
+  app.post("/api/hospitals", (req, res) => {
+    const hospitals = req.body; // Expecting array of hospitals
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION");
+      db.run("DELETE FROM hospitals");
+      const stmt = db.prepare("INSERT INTO hospitals (id, name, address, lat, lng) VALUES (?, ?, ?, ?, ?)");
+      hospitals.forEach((h: any) => {
+        stmt.run(h.id, h.name, h.address, h.lat, h.lng);
+      });
+      stmt.finalize();
+      db.run("COMMIT", (err) => {
+        if (err) {
+          res.status(500).json({ success: false, message: "Database error" });
+        } else {
+          res.json({ success: true });
+        }
+      });
     });
   });
 
@@ -515,7 +603,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(join(__dirname, "dist")));
-    app.use((req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(join(__dirname, "dist/index.html"));
     });
   }

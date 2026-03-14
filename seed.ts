@@ -152,6 +152,34 @@ db.serialize(() => {
   }
 
   insertUser.finalize();
+
+  // Seed Labs
+  const insertLab = db.prepare(`
+    INSERT OR IGNORE INTO labs (id, name, lat, lng, geofenceRadiusMeters, adminId)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const MOCK_LABS = [
+    { id: 'LAB01', name: 'Disha Central Hub', location: { lat: 19.0760, lng: 72.8777 }, geofenceRadiusMeters: 5000, adminId: 'ADM01' },
+    { id: 'LAB02', name: 'Disha North Node', location: { lat: 19.1136, lng: 72.8697 }, geofenceRadiusMeters: 3000, adminId: 'ADM01' }
+  ];
+  for (const l of MOCK_LABS) {
+    insertLab.run(l.id, l.name, l.location.lat, l.location.lng, l.geofenceRadiusMeters, l.adminId);
+  }
+  insertLab.finalize();
+
+  // Seed Hospitals
+  const insertHospital = db.prepare(`
+    INSERT OR IGNORE INTO hospitals (id, name, address, lat, lng)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const MOCK_HOSPITALS = [
+    { id: 'H1', name: 'City Care Hospital', address: 'Andheri West', lat: 19.1136, lng: 72.8697 },
+    { id: 'H2', name: 'Metro Life Care', address: 'Bandra East', lat: 19.0596, lng: 72.8295 }
+  ];
+  for (const h of MOCK_HOSPITALS) {
+    insertHospital.run(h.id, h.name, h.address, h.lat, h.lng);
+  }
+  insertHospital.finalize();
 });
 
 db.close((err) => {

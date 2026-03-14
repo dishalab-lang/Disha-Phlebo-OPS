@@ -1,39 +1,42 @@
 
-const CACHE_NAME = 'disha-pwa-v10';
+const CACHE_NAME = 'disha-phlebo-v1';
 const ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/App.tsx',
-  '/index.tsx',
-  'https://cdn.tailwindcss.com'
+  '/LogoBird.tsx'
 ];
 
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
+self.addEventListener('install', (e) => {
+  e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
+  self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(
-      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-    ))
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keyList) => {
+      return Promise.all(keyList.map((key) => {
+        if (key !== CACHE_NAME) {
+          return caches.delete(key);
+        }
+      }));
+    })
   );
-  return self.clients.claim();
+  self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    fetch(event.request)
-      .then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
-        return res;
-      })
-      .catch(() => caches.match(event.request).then(cached => cached || (event.request.mode === 'navigate' ? caches.match('/index.html') : null)))
-  );
+self.addEventListener('fetch', (e) => {
+  if (e.request.url.includes('/api/')) {
+    // Network first for API calls
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(e.request))
+    );
+  } else {
+    // Cache first for static assets
+    e.respondWith(
+      caches.match(e.request).then((response) => response || fetch(e.request))
+    );
+  }
 });
