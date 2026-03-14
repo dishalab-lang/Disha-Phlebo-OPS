@@ -79,6 +79,10 @@
 <body class="bg-slate-50 text-slate-900 antialiased">
     <script>
       window.onerror = function(msg, url, line, col, error) {
+        const msgStr = msg ? msg.toString() : '';
+        const errStr = error ? (error.stack || error.message || error.toString()) : '';
+        if (msgStr.includes('WebSocket closed') || errStr.includes('WebSocket closed')) return;
+        
         fetch('/api/log-error', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -86,10 +90,13 @@
         });
       };
       window.addEventListener('unhandledrejection', function(event) {
+        const reasonStr = event.reason ? (event.reason.stack || event.reason.message || event.reason.toString()) : '';
+        if (reasonStr && reasonStr.includes('WebSocket closed')) return;
+        
         fetch('/api/log-error', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ msg: 'Unhandled Rejection', reason: event.reason ? event.reason.stack || event.reason : null })
+          body: JSON.stringify({ msg: 'Unhandled Rejection', reason: reasonStr })
         });
       });
     </script>
