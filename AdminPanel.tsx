@@ -133,14 +133,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleRegisterStaff = (e: React.FormEvent) => {
     e.preventDefault();
-    onRegisterPhlebo(newStaff);
+    onRegisterPhlebo({ ...newStaff, age: Number(newStaff.age) });
     setIsRegisteringStaff(false);
     setNewStaff(initialStaffState);
   };
 
   const handleAddTest = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateTests([...tests, { ...newTest, id: 'T' + Date.now() + Math.random().toString(36).substring(2, 7) } as DiagnosticTest]);
+    onUpdateTests([...tests, { ...newTest, price: Number(newTest.price), id: 'T' + Date.now() + Math.random().toString(36).substring(2, 7) } as DiagnosticTest]);
     setIsAddingTest(false);
     setNewTest({ name: '', category: 'Pathology', price: 0 });
   };
@@ -148,13 +148,23 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleSaveEditedTest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTest) return;
-    onUpdateTests(tests.map(t => t.id === editingTest.id ? editingTest : t));
+    const updatedTest = { ...editingTest, price: Number(editingTest.price) };
+    onUpdateTests(tests.map(t => t.id === updatedTest.id ? updatedTest : t));
     setEditingTest(null);
   };
 
   const handleAddLab = (e: React.FormEvent) => {
     e.preventDefault();
-    onRegisterLab(newLab, null);
+    const labToSave = {
+      ...newLab,
+      location: {
+        ...newLab.location!,
+        lat: Number(newLab.location?.lat),
+        lng: Number(newLab.location?.lng)
+      },
+      geofenceRadiusMeters: Number(newLab.geofenceRadiusMeters)
+    };
+    onRegisterLab(labToSave, null);
     setIsAddingLab(false);
     setNewLab({ name: '', location: { lat: 19.0, lng: 72.0, address: '' }, geofenceRadiusMeters: 500 });
   };
@@ -162,13 +172,28 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleSaveEditedLab = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingLab) return;
-    onUpdateLabs(labs.map(l => l.id === editingLab.id ? editingLab : l));
+    const updatedLab = {
+      ...editingLab,
+      location: {
+        ...editingLab.location,
+        lat: Number(editingLab.location.lat),
+        lng: Number(editingLab.location.lng)
+      },
+      geofenceRadiusMeters: Number(editingLab.geofenceRadiusMeters)
+    };
+    onUpdateLabs(labs.map(l => l.id === updatedLab.id ? updatedLab : l));
     setEditingLab(null);
   };
 
   const handleAddHospital = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateHospitals([...hospitals, { ...newHospital, id: 'HOS' + Date.now() + Math.random().toString(36).substring(2, 7) } as Hospital]);
+    const hospitalToSave = {
+      ...newHospital,
+      lat: Number(newHospital.lat),
+      lng: Number(newHospital.lng),
+      id: 'HOS' + Date.now() + Math.random().toString(36).substring(2, 7)
+    } as Hospital;
+    onUpdateHospitals([...hospitals, hospitalToSave]);
     setIsAddingHospital(false);
     setNewHospital({ name: '', address: '', lat: 19.0760, lng: 72.8777 });
   };
@@ -176,7 +201,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleSaveEditedHospital = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingHospital) return;
-    onUpdateHospitals(hospitals.map(h => h.id === editingHospital.id ? editingHospital : h));
+    const updatedHospital = {
+      ...editingHospital,
+      lat: Number(editingHospital.lat),
+      lng: Number(editingHospital.lng)
+    };
+    onUpdateHospitals(hospitals.map(h => h.id === updatedHospital.id ? updatedHospital : h));
     setEditingHospital(null);
   };
 
@@ -390,6 +420,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                    <td className="px-8 py-6">
                                       <span className="text-sm font-black text-slate-900">{call.patientName}</span>
                                       <span className="block text-[9px] font-bold text-slate-400 uppercase">{call.destination.address}</span>
+                                      {call.arrivedLocation && (
+                                        <span className="block text-[9px] font-bold text-brand-green uppercase mt-1">
+                                          Arrived: {call.arrivedLocation.lat.toFixed(4)}, {call.arrivedLocation.lng.toFixed(4)}
+                                        </span>
+                                      )}
                                    </td>
                                    <td className="px-8 py-6">
                                       <span className="text-sm font-black text-brand-purple uppercase">{phlebo?.name || 'Searching...'}</span>
@@ -722,22 +757,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="grid grid-cols-3 gap-6">
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Within TAT Rate (₹/KM)</label>
-                        <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
+                        <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Outside TAT Rate (₹/KM)</label>
-                        <input type="number" value={editedConfig.outsideTatRate} onChange={e => setEditedConfig({...editedConfig, outsideTatRate: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
+                        <input type="number" value={editedConfig.outsideTatRate} onChange={e => setEditedConfig({...editedConfig, outsideTatRate: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Base Incentive (₹)</label>
-                        <input type="number" value={editedConfig.baseIncentive} onChange={e => setEditedConfig({...editedConfig, baseIncentive: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
+                        <input type="number" value={editedConfig.baseIncentive} onChange={e => setEditedConfig({...editedConfig, baseIncentive: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
                   </div>
                   <div>
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Security Authorization PIN</label>
                      <input type="text" maxLength={4} value={editedConfig.securityPin} onChange={e => setEditedConfig({...editedConfig, securityPin: e.target.value})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl text-brand-purple tracking-[1em] text-center outline-none" />
                   </div>
-                  <button onClick={() => { onUpdateConfig(editedConfig); alert("Global enterprise standards updated."); }} className="w-full bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
+                  <button onClick={() => { 
+                    const parsedConfig = {
+                      ...editedConfig,
+                      withinTatRate: Number(editedConfig.withinTatRate),
+                      outsideTatRate: Number(editedConfig.outsideTatRate),
+                      baseIncentive: Number(editedConfig.baseIncentive),
+                      tatBrackets: (editedConfig.tatBrackets || []).map(b => ({ maxKm: Number(b.maxKm), tatMinutes: Number(b.tatMinutes) }))
+                    };
+                    onUpdateConfig(parsedConfig); 
+                    alert("Global enterprise standards updated."); 
+                  }} className="w-full bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
                     <Save size={20} /> Synchronize Global Config
                   </button>
                 </div>
@@ -760,7 +805,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                             <input 
                                type="number" 
                                value={bracket.maxKm} 
-                               onChange={e => handleUpdateTatBracket(idx, 'maxKm', parseFloat(e.target.value))}
+                               onChange={e => handleUpdateTatBracket(idx, 'maxKm', e.target.value as any)}
                                className="w-full bg-white p-3 rounded-xl font-black text-slate-900 outline-none border focus:border-brand-purple"
                             />
                          </div>
@@ -769,7 +814,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                             <input 
                                type="number" 
                                value={bracket.tatMinutes} 
-                               onChange={e => handleUpdateTatBracket(idx, 'tatMinutes', parseInt(e.target.value))}
+                               onChange={e => handleUpdateTatBracket(idx, 'tatMinutes', e.target.value as any)}
                                className="w-full bg-white p-3 rounded-xl font-black text-brand-purple outline-none border focus:border-brand-purple"
                             />
                          </div>
@@ -779,7 +824,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                    ))}
                 </div>
-                <button onClick={() => { onUpdateConfig({...editedConfig, tatBrackets: [...(editedConfig.tatBrackets || [])].sort((a,b) => a.maxKm - b.maxKm)}); alert("TAT Matrix saved successfully."); }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
+                <button onClick={() => { 
+                  const parsedBrackets = [...(editedConfig.tatBrackets || [])].map(b => ({ maxKm: Number(b.maxKm), tatMinutes: Number(b.tatMinutes) })).sort((a,b) => a.maxKm - b.maxKm);
+                  onUpdateConfig({...editedConfig, tatBrackets: parsedBrackets}); 
+                  alert("TAT Matrix saved successfully."); 
+                }} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg">
                    <Save size={18} /> Save Matrix
                 </button>
               </div>
@@ -909,7 +958,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Price Tier (₹)</label>
-                    <input required type="number" value={editingTest.price} onChange={e => setEditingTest({...editingTest, price: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xl text-brand-purple" />
+                    <input required type="number" value={editingTest.price} onChange={e => setEditingTest({...editingTest, price: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xl text-brand-purple" />
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Patient Phone Number</label>
@@ -948,7 +997,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Age</label>
-                       <input required type="number" value={newStaff.age} onChange={e => setNewStaff({...newStaff, age: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                       <input required type="number" value={newStaff.age} onChange={e => setNewStaff({...newStaff, age: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
                     </div>
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Sex</label>
@@ -1004,11 +1053,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Latitude</label>
-                        <input required type="number" step="any" value={newHospital.lat} onChange={e => setNewHospital({...newHospital, lat: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={newHospital.lat} onChange={e => setNewHospital({...newHospital, lat: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Longitude</label>
-                        <input required type="number" step="any" value={newHospital.lng} onChange={e => setNewHospital({...newHospital, lng: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={newHospital.lng} onChange={e => setNewHospital({...newHospital, lng: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                  </div>
                  <div>
@@ -1036,11 +1085,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Latitude</label>
-                        <input required type="number" step="any" value={editingHospital.lat} onChange={e => setEditingHospital({...editingHospital, lat: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={editingHospital.lat} onChange={e => setEditingHospital({...editingHospital, lat: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Longitude</label>
-                        <input required type="number" step="any" value={editingHospital.lng} onChange={e => setEditingHospital({...editingHospital, lng: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={editingHospital.lng} onChange={e => setEditingHospital({...editingHospital, lng: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                  </div>
                  <div>
@@ -1068,16 +1117,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Latitude</label>
-                        <input required type="number" step="any" value={newLab.location?.lat} onChange={e => setNewLab({...newLab, location: {...newLab.location!, lat: parseFloat(e.target.value)}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={newLab.location?.lat} onChange={e => setNewLab({...newLab, location: {...newLab.location!, lat: e.target.value as any}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Longitude</label>
-                        <input required type="number" step="any" value={newLab.location?.lng} onChange={e => setNewLab({...newLab, location: {...newLab.location!, lng: parseFloat(e.target.value)}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={newLab.location?.lng} onChange={e => setNewLab({...newLab, location: {...newLab.location!, lng: e.target.value as any}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence Radius (Meters)</label>
-                    <input required type="number" value={newLab.geofenceRadiusMeters} onChange={e => setNewLab({...newLab, geofenceRadiusMeters: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black" />
+                    <input required type="number" value={newLab.geofenceRadiusMeters} onChange={e => setNewLab({...newLab, geofenceRadiusMeters: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black" />
                  </div>
                  <button type="submit" className="w-full bg-brand-purple text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl">Activate Infrastructure</button>
               </form>
@@ -1100,16 +1149,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Latitude</label>
-                        <input required type="number" step="any" value={editingLab.location.lat} onChange={e => setEditingLab({...editingLab, location: {...editingLab.location, lat: parseFloat(e.target.value)}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={editingLab.location.lat} onChange={e => setEditingLab({...editingLab, location: {...editingLab.location, lat: e.target.value as any}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Longitude</label>
-                        <input required type="number" step="any" value={editingLab.location.lng} onChange={e => setEditingLab({...editingLab, location: {...editingLab.location, lng: parseFloat(e.target.value)}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
+                        <input required type="number" step="any" value={editingLab.location.lng} onChange={e => setEditingLab({...editingLab, location: {...editingLab.location, lng: e.target.value as any}})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold" />
                     </div>
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence (Meters)</label>
-                    <input required type="number" value={editingLab.geofenceRadiusMeters} onChange={e => setEditingLab({...editingLab, geofenceRadiusMeters: parseInt(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black" />
+                    <input required type="number" value={editingLab.geofenceRadiusMeters} onChange={e => setEditingLab({...editingLab, geofenceRadiusMeters: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black" />
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Address</label>
@@ -1139,7 +1188,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  </div>
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Base Price (₹)</label>
-                    <input required type="number" value={newTest.price} onChange={e => setNewTest({...newTest, price: parseFloat(e.target.value)})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xl text-brand-purple" />
+                    <input required type="number" value={newTest.price} onChange={e => setNewTest({...newTest, price: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black text-xl text-brand-purple" />
                  </div>
                  <button type="submit" className="w-full bg-brand-purple text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl">Commit to Global Catalog</button>
               </form>

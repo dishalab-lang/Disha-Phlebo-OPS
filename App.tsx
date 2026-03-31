@@ -196,7 +196,7 @@ const App: React.FC = () => {
       otpGeneratedAt: now,
       otpExpiresAt: now + (10 * 60 * 1000),
       otpRetryCount: 0,
-      isOtpLocked: 0
+      isOtpLocked: false
     };
 
     try {
@@ -358,6 +358,38 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateLabs = async (newLabs: DiagnosticLab[]) => {
+    try {
+      const res = await fetch('/api/labs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newLabs)
+      });
+      if (res.ok) {
+        setLabs(newLabs);
+        setToast({ message: "Labs synchronized", type: 'success' });
+      }
+    } catch (e) {
+      setToast({ message: "Failed to sync labs", type: 'info' });
+    }
+  };
+
+  const handleUpdateHospitals = async (newHospitals: Hospital[]) => {
+    try {
+      const res = await fetch('/api/hospitals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newHospitals)
+      });
+      if (res.ok) {
+        setHospitals(newHospitals);
+        setToast({ message: "Hospitals synchronized", type: 'success' });
+      }
+    } catch (e) {
+      setToast({ message: "Failed to sync hospitals", type: 'info' });
+    }
+  };
+
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
@@ -485,10 +517,11 @@ const App: React.FC = () => {
             onUpdateConfig={handleUpdateConfig} 
             onRegisterLab={(l, a) => {
               const lid = 'LAB'+Date.now()+Math.random().toString(36).substring(2, 7);
-              setLabs(prev => [...prev, {...l, id: lid} as DiagnosticLab]);
+              const newLabs = [...labs, {...l, id: lid} as DiagnosticLab];
+              handleUpdateLabs(newLabs);
               if(a) handleRegisterPhlebo({...a, labId: lid});
             }}
-            onUpdateLab={(l) => setLabs(prev => prev.map(lab => lab.id === l.id ? l : lab))}
+            onUpdateLab={(l) => handleUpdateLabs(labs.map(lab => lab.id === l.id ? l : lab))}
             history={performanceHistory} 
             phleboList={allPhlebos}
             activeCalls={calls}
@@ -498,8 +531,8 @@ const App: React.FC = () => {
             onRemovePhlebo={(id) => setAllPhlebos(prev => prev.filter(p => p.id !== id))}
             onUpdateUserStatus={(id, s) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, status: s} : p))}
             onUpdateTests={setTests}
-            onUpdateLabs={setLabs}
-            onUpdateHospitals={setHospitals}
+            onUpdateLabs={handleUpdateLabs}
+            onUpdateHospitals={handleUpdateHospitals}
             onUpdatePhleboRole={(id, r) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, role: r} : p))}
           />
         )}

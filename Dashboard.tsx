@@ -213,7 +213,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
             </div>
           </div>
         </div>
-        {currentUser.role === 'DISPATCHER' ? (
+        {['DISPATCHER', 'ADMIN', 'SYSTEM_ADMIN', 'DEVELOPER', 'RECEPTION'].includes(currentUser.role) ? (
           <button onClick={() => setIsModalOpen(true)} className="w-full md:w-auto bg-brand-green text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3">
             <Plus size={20} /> Deploy Call
           </button>
@@ -286,6 +286,11 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                         <div className="flex flex-col">
                           <span className="text-sm font-black text-slate-900 block">{call.patientName}</span>
                           <span className="text-[9px] font-bold text-slate-400 uppercase">{phlebo ? `Assigned: ${phlebo.name}` : 'Awaiting Assignment'}</span>
+                          {call.arrivedLocation && (
+                            <span className="text-[9px] font-bold text-brand-green uppercase mt-1">
+                              Arrived: {call.arrivedLocation.lat.toFixed(4)}, {call.arrivedLocation.lng.toFixed(4)}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-6 text-center">
@@ -421,7 +426,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                 <textarea required placeholder="Full Collection Address..." value={newCall.address} onChange={e => setNewCall({...newCall, address: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl h-24 font-bold resize-none" />
 
                 <div className="pt-8 flex gap-4">
-                   <button onClick={() => setIsModalOpen(false)} className="px-10 font-black text-[10px] uppercase text-slate-400">Cancel</button>
+                   <button type="button" onClick={() => setIsModalOpen(false)} className="px-10 font-black text-[10px] uppercase text-slate-400">Cancel</button>
                    <button type="submit" className="flex-1 bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3">
                      <Send size={18} /> Deploy Call
                    </button>

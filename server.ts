@@ -1,138 +1,89 @@
 import express from "express";
 import cors from "cors";
-import sqlite3 from "sqlite3";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { GoogleGenAI } from '@google/genai';
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData.ts';
 
-
-
-let ai: GoogleGenAI | null = null;
-
-const getAI = () => {
-  if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.error('GEMINI_API_KEY environment variable is not set.');
-      return null;
-    }
-    ai = new GoogleGenAI({ apiKey });
-  }
-  return ai;
+// --- In-Memory Data Store ---
+const db = {
+  users: new Map(),
+  calls: new Map(),
+  metrics: new Map(),
+  config: { system_config: JSON.stringify(INITIAL_CONFIG) },
+  labs: new Map(),
+  hospitals: new Map(),
+  logs: [] as any[]
 };
+
+// Initialize with mock data
+MOCK_LABS.forEach(l => db.labs.set(l.id, {
+  id: l.id,
+  name: l.name,
+  lat: l.location?.lat || 0,
+  lng: l.location?.lng || 0,
+  geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
+  adminId: null
+}));
+
+MOCK_HOSPITALS.forEach(h => db.hospitals.set(h.id, {
+  id: h.id,
+  name: h.name,
+  address: h.address || null,
+  lat: h.lat || 0,
+  lng: h.lng || 0
+}));
+
+// Default Admin User
+const defaultAdmin = {
+  id: 'ADMIN-1',
+  name: 'System Admin',
+  username: 'admin',
+  password: '123',
+  role: 'ADMIN',
+  status: 'ACTIVE',
+  isAvailable: true,
+  completedCalls: 0,
+  rejectedCalls: 0,
+  monthlyEarnings: 0
+};
+db.users.set(defaultAdmin.id, defaultAdmin);
+
+// Default Phlebotomist
+const defaultPhlebo = {
+  id: 'P-1',
+  name: 'John Phlebo',
+  username: 'phlebo',
+  password: '123',
+  role: 'PHLEBOTOMIST',
+  status: 'ACTIVE',
+  isAvailable: true,
+  completedCalls: 0,
+  rejectedCalls: 0,
+  monthlyEarnings: 0,
+  labId: 'LAB01'
+};
+db.users.set(defaultPhlebo.id, defaultPhlebo);
+
+// --- End In-Memory Data Store ---
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+let aiClient: any = null;
+function getAI() {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (key) {
+      aiClient = new GoogleGenAI({ apiKey: key });
+    }
+  }
+  return aiClient;
+}
+
 async function startServer() {
-  try {
-  const db = new sqlite3.Database("disha.db");
-
-  // Initialize Database Schema
-  db.serialize(() => {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        phone TEXT,
-        email TEXT,
-        username TEXT UNIQUE,
-        password TEXT,
-        role TEXT,
-        status TEXT,
-        labId TEXT,
-        isAvailable INTEGER DEFAULT 1,
-        grade TEXT,
-        monthlyEarnings REAL DEFAULT 0,
-        completedCalls INTEGER DEFAULT 0,
-        rejectedCalls INTEGER DEFAULT 0,
-        shiftStart TEXT,
-        shiftEnd TEXT,
-        lastActive INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS calls (
-        id TEXT PRIMARY KEY,
-        patientName TEXT,
-        patientPhone TEXT,
-        verificationCode TEXT,
-        otpGeneratedAt INTEGER,
-        otpExpiresAt INTEGER,
-        otpRetryCount INTEGER DEFAULT 0,
-        isOtpLocked INTEGER DEFAULT 0,
-        type TEXT,
-        destLat REAL,
-        destLng REAL,
-        destAddress TEXT,
-        placedAt INTEGER,
-        acceptedAt INTEGER,
-        visitedAt INTEGER,
-        collectedAt INTEGER,
-        handoverAt INTEGER,
-        status TEXT,
-        assignedPhleboId TEXT,
-        labId TEXT,
-        estimatedTatMinutes INTEGER,
-        isPriority INTEGER DEFAULT 0,
-        billingJson TEXT,
-        visitPhoto TEXT,
-        samplePhoto TEXT,
-        handoverPhoto TEXT,
-        voiceNote TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp INTEGER,
-        userId TEXT,
-        action TEXT,
-        details TEXT,
-        ip TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS config (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS labs (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        lat REAL,
-        lng REAL,
-        geofenceRadiusMeters INTEGER,
-        adminId TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS hospitals (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        address TEXT,
-        lat REAL,
-        lng REAL
-      );
-
-      CREATE TABLE IF NOT EXISTS metrics (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        callId TEXT,
-        phleboId TEXT,
-        phleboName TEXT,
-        patientName TEXT,
-        totalTat INTEGER,
-        targetTat INTEGER,
-        distance REAL,
-        incentive REAL,
-        revenue REAL,
-        paymentMode TEXT,
-        timestamp INTEGER,
-        isPremiumIncentive INTEGER,
-        voiceNote TEXT,
-        status TEXT
-      );
-    `);
-  });
   const app = express();
   const PORT = 3000;
   const server = createServer(app);
@@ -148,27 +99,103 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
+  // --- LIS Integration API Layer ---
+  
+  // Middleware to secure LIS Webhooks
+  const requireLisApiKey = (req: any, res: any, next: any) => {
+    const authHeader = req.headers['authorization'];
+    const expectedKey = process.env.LIS_API_KEY || 'default-insecure-lis-key';
+    if (!authHeader || authHeader !== `Bearer ${expectedKey}`) {
+      return res.status(401).json({ success: false, message: "Unauthorized LIS access" });
+    }
+    next();
+  };
+
+  // Outbound Sync Function
+  const syncToCentralLIS = async (callId: string, status: string, additionalData: any = {}) => {
+    const lisEndpoint = process.env.LIS_WEBHOOK_URL;
+    if (!lisEndpoint) {
+      console.log(`[LIS Sync Stub] Would sync call ${callId} status ${status} to LIS. Set LIS_WEBHOOK_URL to enable real sync.`);
+      return;
+    }
+    try {
+      console.log(`[LIS Sync] Syncing call ${callId} to ${lisEndpoint}`);
+    } catch (err) {
+      console.error(`[LIS Sync Error] Failed to sync call ${callId}:`, err);
+    }
+  };
+
+  // Inbound Webhook: Central LIS pushes new tasks to the app
+  app.post("/api/webhooks/lis/tasks", requireLisApiKey, (req, res) => {
+    const { externalId, patientName, patientPhone, testCodes, address, lat, lng, scheduledAt, labId, isPriority } = req.body;
+
+    if (!externalId || !patientName || !patientPhone) {
+      return res.status(400).json({ success: false, message: "Missing required fields (externalId, patientName, patientPhone)" });
+    }
+
+    const callId = `CALL-${externalId}`;
+    const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const otpGeneratedAt = Date.now();
+    const otpExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const placedAt = scheduledAt ? new Date(scheduledAt).getTime() : Date.now();
+    const status = 'PENDING';
+    const type = 'HOME_COLLECTION';
+    const estimatedTatMinutes = 60;
+    const billing = { tests: testCodes || [], totalAmount: 0, isPaid: false };
+
+    const callData = {
+      id: callId,
+      patientName,
+      patientPhone,
+      verificationCode,
+      otpGeneratedAt,
+      otpExpiresAt,
+      type,
+      destLat: lat || 0,
+      destLng: lng || 0,
+      destAddress: address || 'Unknown Address',
+      placedAt,
+      status,
+      labId: labId || 'LAB-1',
+      estimatedTatMinutes,
+      isPriority: isPriority ? true : false,
+      billingJson: JSON.stringify(billing)
+    };
+
+    db.calls.set(callId, callData);
+    const call = {
+      ...callData,
+      billing,
+      destination: { lat: callData.destLat, lng: callData.destLng, address: callData.destAddress }
+    };
+    io.emit('call_created', call);
+    io.emit('notification', { message: `New task received from Central LIS: ${callId}`, type: 'info' });
+    res.json({ success: true, message: "Task synced successfully", callId });
+  });
+
+  // --- End LIS Integration API Layer ---
+
   // Middleware for logging actions
   const logger = (req: any, res: any, next: any) => {
     if (!req.path.startsWith('/api')) return next();
     const userId = req.headers['x-user-id'] || 'anonymous';
     const action = `${req.method} ${req.path}`;
     
-    // Use a try-catch for JSON.stringify and ensure next() is called even on DB error
     let details = "";
     try {
-      details = JSON.stringify(req.body);
+      details = JSON.stringify(req.body) || "";
     } catch (e) {
       details = "[Unserializable Body]";
     }
 
-    db.run("INSERT INTO logs (timestamp, userId, action, details, ip) VALUES (?, ?, ?, ?, ?)", 
-      [Date.now(), userId, action, details, req.ip], 
-      (err) => {
-        if (err) {
-          console.error('Failed to log action:', err);
-        }
-      });
+    db.logs.push({
+      id: `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      timestamp: Date.now(),
+      userId,
+      action,
+      details,
+      ip: req.ip
+    });
     next();
   };
 
@@ -192,332 +219,298 @@ async function startServer() {
     res.json({ success: true, message: "API is reachable" });
   });
 
-  app.get("/api/config", (req, res) => {
-    db.get("SELECT value FROM config WHERE key = 'system_config'", [], (err, row: any) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else if (row) {
-        res.json(JSON.parse(row.value));
-      } else {
-        res.json(null);
-      }
-    });
+  app.get("/api/config", async (req, res) => {
+    const data = db.config.system_config;
+    res.json(data ? JSON.parse(data) : null);
   });
 
-  app.post("/api/config", (req, res) => {
+  app.post("/api/config", async (req, res) => {
     const config = req.body;
-    db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('system_config', ?)", [JSON.stringify(config)], (err) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        res.json({ success: true });
-      }
-    });
+    db.config.system_config = JSON.stringify(config);
+    res.json({ success: true });
   });
 
-  app.get("/api/labs", (req, res) => {
-    db.all("SELECT * FROM labs", [], (err, rows) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        res.json((rows as any[]).map(r => ({
-          id: r.id,
-          name: r.name,
-          location: { lat: r.lat, lng: r.lng },
-          geofenceRadiusMeters: r.geofenceRadiusMeters,
-          adminId: r.adminId
-        })));
-      }
-    });
+  app.get("/api/labs", async (req, res) => {
+    const labs = Array.from(db.labs.values()).map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      location: { lat: r.lat, lng: r.lng },
+      geofenceRadiusMeters: r.geofenceRadiusMeters,
+      adminId: r.adminId
+    }));
+    res.json(labs);
   });
 
-  app.post("/api/labs", (req, res) => {
-    const labs = req.body; // Expecting array of labs
-    db.serialize(() => {
-      db.run("BEGIN TRANSACTION");
-      db.run("DELETE FROM labs");
-      const stmt = db.prepare("INSERT INTO labs (id, name, lat, lng, geofenceRadiusMeters, adminId) VALUES (?, ?, ?, ?, ?, ?)");
-      labs.forEach((l: any) => {
-        stmt.run(l.id, l.name, l.location.lat, l.location.lng, l.geofenceRadiusMeters, l.adminId);
-      });
-      stmt.finalize();
-      db.run("COMMIT", (err) => {
-        if (err) {
-          res.status(500).json({ success: false, message: "Database error" });
-        } else {
-          res.json({ success: true });
-        }
+  app.post("/api/labs", async (req, res) => {
+    const labs = req.body;
+    db.labs.clear();
+    labs.forEach((l: any) => {
+      db.labs.set(l.id, {
+        id: l.id,
+        name: l.name,
+        lat: l.location?.lat || 0,
+        lng: l.location?.lng || 0,
+        geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
+        adminId: l.adminId || null
       });
     });
+    res.json({ success: true });
   });
 
-  app.get("/api/hospitals", (req, res) => {
-    db.all("SELECT * FROM hospitals", [], (err, rows) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        res.json(rows);
-      }
-    });
+  app.get("/api/hospitals", async (req, res) => {
+    res.json(Array.from(db.hospitals.values()));
   });
 
-  app.post("/api/hospitals", (req, res) => {
-    const hospitals = req.body; // Expecting array of hospitals
-    db.serialize(() => {
-      db.run("BEGIN TRANSACTION");
-      db.run("DELETE FROM hospitals");
-      const stmt = db.prepare("INSERT INTO hospitals (id, name, address, lat, lng) VALUES (?, ?, ?, ?, ?)");
-      hospitals.forEach((h: any) => {
-        stmt.run(h.id, h.name, h.address, h.lat, h.lng);
-      });
-      stmt.finalize();
-      db.run("COMMIT", (err) => {
-        if (err) {
-          res.status(500).json({ success: false, message: "Database error" });
-        } else {
-          res.json({ success: true });
-        }
+  app.post("/api/hospitals", async (req, res) => {
+    const hospitals = req.body;
+    db.hospitals.clear();
+    hospitals.forEach((h: any) => {
+      db.hospitals.set(h.id, {
+        id: h.id,
+        name: h.name,
+        address: h.address || null,
+        lat: h.lat || 0,
+        lng: h.lng || 0
       });
     });
+    res.json({ success: true });
   });
 
-  app.get("/api/metrics", (req, res) => {
-    db.all("SELECT * FROM metrics ORDER BY timestamp DESC", [], (err, rows) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        res.json((rows as any[]).map(row => ({
-          ...row,
-          isPremiumIncentive: !!row.isPremiumIncentive
-        })));
-      }
-    });
+  app.get("/api/metrics", async (req, res) => {
+    const metrics = Array.from(db.metrics.values())
+      .sort((a: any, b: any) => b.timestamp - a.timestamp)
+      .map((row: any) => ({
+        ...row,
+        isPremiumIncentive: !!row.isPremiumIncentive
+      }));
+    res.json(metrics);
   });
 
-  app.post("/api/metrics", (req, res) => {
+  app.post("/api/metrics", async (req, res) => {
     const m = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO metrics (
-        callId, phleboId, phleboName, patientName, totalTat, targetTat, 
-        distance, incentive, revenue, paymentMode, timestamp, 
-        isPremiumIncentive, voiceNote, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      m.callId, m.phleboId, m.phleboName, m.patientName, m.totalTat, m.targetTat,
-      m.distance, m.incentive, m.revenue, m.paymentMode, m.timestamp,
-      m.isPremiumIncentive ? 1 : 0, m.voiceNote, m.status,
-      (err) => {
-        if (err) {
-          res.status(500).json({ success: false, message: "Database error" });
-        } else {
-          io.emit('metrics_updated', m);
-          res.json({ success: true });
-        }
-      }
-    );
+    const id = `METRIC-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const metricData = {
+      id,
+      callId: m.callId,
+      phleboId: m.phleboId,
+      phleboName: m.phleboName,
+      patientName: m.patientName,
+      totalTat: m.totalTat,
+      targetTat: m.targetTat,
+      distance: m.distance,
+      incentive: m.incentive,
+      revenue: m.revenue,
+      paymentMode: m.paymentMode,
+      timestamp: m.timestamp,
+      isPremiumIncentive: m.isPremiumIncentive ? true : false,
+      voiceNote: m.voiceNote,
+      status: m.status
+    };
+    db.metrics.set(id, metricData);
+    io.emit('metrics_updated', m);
+    res.json({ success: true });
   });
 
   // Auth API
-  app.post("/api/login", (req, res) => {
-    console.log("Login endpoint hit with body:", req.body);
+  app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
-    db.get("SELECT * FROM users WHERE username = ? AND password = ?", [username, password], (err, user) => {
-      if (err) {
-        console.error("Login DB Error:", err);
-        res.status(500).json({ success: false, message: "Database error 123", error: String(err) });
-      } else if (user) {
-        res.json({ success: true, user });
-      } else {
-        res.status(401).json({ success: false, message: "Invalid credentials" });
+    const user = Array.from(db.users.values()).find((u: any) => 
+      (u.username === username || u.email === username) && u.password === password
+    );
+
+    if (user) {
+      if (user.status === 'LOCKED') {
+        return res.status(403).json({ success: false, message: "Access Restricted: Node Locked" });
       }
-    });
+      res.json({ success: true, user });
+    } else {
+      res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
   });
 
   // Calls API
-  app.get("/api/calls", (req, res) => {
-    db.all("SELECT * FROM calls ORDER BY placedAt DESC", [], (err, calls) => {
-      if (err) {
-        console.error("Calls DB Error:", err);
-        res.status(500).json({ success: false, message: "Database error", error: String(err) });
-      } else {
+  app.get("/api/calls", async (req, res) => {
+    const calls = Array.from(db.calls.values())
+      .sort((a: any, b: any) => b.placedAt - a.placedAt)
+      .map((c: any) => {
+        let parsedBilling = null;
         try {
-          res.json(calls.map((c: any) => {
-            let parsedBilling = null;
-            try {
-              parsedBilling = c.billingJson ? JSON.parse(c.billingJson) : null;
-            } catch (e) {
-              console.error("Error parsing billingJson for call", c.id, e);
-            }
-            return {
-              ...c,
-              destination: { lat: c.destLat, lng: c.destLng, address: c.destAddress },
-              billing: parsedBilling,
-              isPriority: !!c.isPriority,
-              isOtpLocked: !!c.isOtpLocked
-            };
-          }));
+          parsedBilling = c.billingJson ? JSON.parse(c.billingJson) : null;
         } catch (e) {
-          console.error("Error mapping calls:", e);
-          res.status(500).json({ success: false, message: "Error mapping calls", error: String(e) });
+          console.error("Error parsing billingJson for call", c.id, e);
         }
-      }
-    });
-  });
-
-  app.post("/api/calls", (req, res) => {
-    const call = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO calls (
-        id, patientName, patientPhone, verificationCode, otpGeneratedAt, otpExpiresAt, 
-        type, destLat, destLng, destAddress, placedAt, status, labId, estimatedTatMinutes, 
-        isPriority, billingJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      call.id, call.patientName, call.patientPhone, call.verificationCode, call.otpGeneratedAt, 
-      call.otpExpiresAt, call.type, call.destination.lat, call.destination.lng, 
-      call.destination.address, call.placedAt, call.status, call.labId, 
-      call.estimatedTatMinutes, call.isPriority ? 1 : 0, JSON.stringify(call.billing)
-    , (err) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        io.emit('call_created', call);
-        res.json({ success: true });
-      }
-    });
-  });
-
-  app.post("/api/calls/verify", (req, res, next) => {
-    try {
-      console.log("Verify OTP endpoint hit with body:", req.body);
-      const { callId, otp } = req.body;
-      if (!callId || !otp) {
-        console.log("Verify OTP: Missing callId or otp");
-        return res.status(400).json({ success: false, message: "Missing callId or otp" });
-      }
-      db.get("SELECT * FROM calls WHERE id = ?", [callId], (err, call: any) => {
-        if (err) {
-          console.error("Verify OTP DB Error:", err);
-          return res.status(500).json({ success: false, message: "Database error" });
-        }
-        if (!call) {
-          console.log("Verify OTP: Call not found", callId);
-          return res.status(404).json({ success: false, message: "Call not found" });
-        }
-        console.log("Verify OTP: Found call", call.id, "Status:", call.status);
-        if (call.isOtpLocked) {
-          console.log("Verify OTP: Call is locked");
-          return res.status(403).json({ success: false, message: "OTP locked due to too many failed attempts" });
-        }
-        if (Date.now() > call.otpExpiresAt) {
-          console.log("Verify OTP: OTP expired");
-          return res.status(400).json({ success: false, message: "OTP expired" });
-        }
-        if (call.verificationCode !== otp) {
-          console.log("Verify OTP: Invalid OTP. Expected:", call.verificationCode, "Got:", otp);
-          const newRetryCount = (call.otpRetryCount || 0) + 1;
-          const isLocked = newRetryCount >= 3;
-          db.run("UPDATE calls SET otpRetryCount = ?, isOtpLocked = ? WHERE id = ?", [newRetryCount, isLocked ? 1 : 0, callId]);
-          return res.status(400).json({ success: false, message: "Invalid OTP" });
-        }
-        
-        console.log("Verify OTP: Success. Updating status to IN_PROGRESS");
-        db.run("UPDATE calls SET status = 'IN_PROGRESS' WHERE id = ?", [callId], (err) => {
-          if (err) {
-            console.error("Verify OTP Update Status Error:", err);
-            return res.status(500).json({ success: false, message: "Database error" });
-          }
-          io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
-          res.json({ success: true });
-        });
+        return {
+          ...c,
+          destination: { lat: c.destLat, lng: c.destLng, address: c.destAddress },
+          arrivedLocation: c.arrivedLat ? { lat: c.arrivedLat, lng: c.arrivedLng, address: c.arrivedAddress } : undefined,
+          billing: parsedBilling,
+          isPriority: !!c.isPriority,
+          isOtpLocked: !!c.isOtpLocked
+        };
       });
-    } catch (e) {
-      next(e);
-    }
+    res.json(calls);
   });
 
-  app.patch("/api/calls/:id", (req, res) => {
-    const { id } = req.params;
-    const updates = req.body;
-    const fields = Object.keys(updates).map(k => `${k} = ?`).join(", ");
-    const values = Object.values(updates);
-    db.run(`UPDATE calls SET ${fields} WHERE id = ?`, [...values, id], (err) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        io.emit('call_updated', { id, ...updates });
-        
-        // Automated Events
-        if (updates.status === 'ACCEPTED') {
-          io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
-        } else if (updates.status === 'VISITING') {
-          db.get("SELECT verificationCode FROM calls WHERE id = ?", [id], (err, row: any) => {
-            if (!err && row) {
-              io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${row.verificationCode}`, type: 'success' });
-            }
-          });
-        } else if (updates.status === 'COMPLETED') {
-          io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
-        }
+  app.post("/api/calls", async (req, res) => {
+    const call = req.body;
+    const callData = {
+      id: call.id,
+      patientName: call.patientName,
+      patientPhone: call.patientPhone,
+      verificationCode: call.verificationCode,
+      otpGeneratedAt: call.otpGeneratedAt,
+      otpExpiresAt: call.otpExpiresAt,
+      type: call.type,
+      destLat: call.destination.lat,
+      destLng: call.destination.lng,
+      destAddress: call.destination.address,
+      placedAt: call.placedAt,
+      status: call.status,
+      labId: call.labId,
+      estimatedTatMinutes: call.estimatedTatMinutes,
+      isPriority: call.isPriority ? true : false,
+      billingJson: JSON.stringify(call.billing)
+    };
+    db.calls.set(call.id, callData);
+    io.emit('call_created', call);
+    res.json({ success: true });
+  });
 
-        res.json({ success: true });
-      }
-    });
+  app.post("/api/calls/verify", async (req, res, next) => {
+    const { callId, otp } = req.body;
+    if (!callId || !otp) {
+      return res.status(400).json({ success: false, message: "Missing callId or otp" });
+    }
+    
+    const call = db.calls.get(callId);
+    if (!call) {
+      return res.status(404).json({ success: false, message: "Call not found" });
+    }
+    
+    if (call.isOtpLocked) {
+      return res.status(403).json({ success: false, message: "OTP locked due to too many failed attempts" });
+    }
+    if (Date.now() > call.otpExpiresAt) {
+      return res.status(400).json({ success: false, message: "OTP expired" });
+    }
+    if (call.verificationCode !== otp) {
+      const newRetryCount = (call.otpRetryCount || 0) + 1;
+      const isLocked = newRetryCount >= 3;
+      db.calls.set(callId, {
+        ...call,
+        otpRetryCount: newRetryCount,
+        isOtpLocked: isLocked ? true : false
+      });
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
+    }
+    
+    const updatedCall = { ...call, status: 'IN_PROGRESS' };
+    db.calls.set(callId, updatedCall);
+    io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
+    syncToCentralLIS(callId, 'IN_PROGRESS');
+    res.json({ success: true });
+  });
+
+  app.patch("/api/calls/:id", async (req, res) => {
+    const { id } = req.params;
+    const updates = { ...req.body };
+    const call = db.calls.get(id);
+    
+    if (!call) {
+      return res.status(404).json({ success: false, message: "Call not found" });
+    }
+
+    if (updates.arrivedLocation) {
+      updates.arrivedLat = updates.arrivedLocation.lat;
+      updates.arrivedLng = updates.arrivedLocation.lng;
+      updates.arrivedAddress = updates.arrivedLocation.address;
+      delete updates.arrivedLocation;
+    }
+    if (updates.billing) {
+      updates.billingJson = JSON.stringify(updates.billing);
+      delete updates.billing;
+    }
+    if (updates.isOtpLocked !== undefined) {
+      updates.isOtpLocked = updates.isOtpLocked ? true : false;
+    }
+    if (updates.isPriority !== undefined) {
+      updates.isPriority = updates.isPriority ? true : false;
+    }
+
+    const updatedCall = { ...call, ...updates };
+    db.calls.set(id, updatedCall);
+    
+    const emitUpdates = { ...updates };
+    if (emitUpdates.billingJson) {
+      emitUpdates.billing = JSON.parse(emitUpdates.billingJson);
+      delete emitUpdates.billingJson;
+    }
+    if (emitUpdates.arrivedLat !== undefined) {
+      emitUpdates.arrivedLocation = {
+        lat: emitUpdates.arrivedLat,
+        lng: emitUpdates.arrivedLng,
+        address: emitUpdates.arrivedAddress
+      };
+      delete emitUpdates.arrivedLat;
+      delete emitUpdates.arrivedLng;
+      delete emitUpdates.arrivedAddress;
+    }
+    
+    io.emit('call_updated', { id, ...emitUpdates });
+    
+    if (updates.status) {
+      syncToCentralLIS(id, updates.status, updates);
+    }
+
+    if (updates.status === 'ACCEPTED') {
+      io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
+    } else if (updates.status === 'VISITING') {
+      io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${updatedCall.verificationCode}`, type: 'success' });
+    } else if (updates.status === 'COMPLETED') {
+      io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
+    }
+
+    res.json({ success: true });
   });
 
   // Users API
-  app.get("/api/users", (req, res) => {
-    db.all("SELECT * FROM users", [], (err, users) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        res.json(users);
-      }
-    });
+  app.get("/api/users", async (req, res) => {
+    res.json(Array.from(db.users.values()));
   });
 
-  app.post("/api/users", (req, res) => {
+  app.post("/api/users", async (req, res) => {
     const user = req.body;
-    const stmt = db.prepare(`
-      INSERT INTO users (
-        id, name, phone, email, username, password, role, status, labId, isAvailable, grade, monthlyEarnings, completedCalls, rejectedCalls, shiftStart, shiftEnd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      user.id, user.name, user.phone, user.email, user.username, user.password, user.role, user.status, user.labId, 
-      user.isAvailable ? 1 : 0, user.grade, user.monthlyEarnings, user.completedCalls, user.rejectedCalls, 
-      user.shiftStart, user.shiftEnd,
-      (err) => {
-        if (err) {
-          res.status(500).json({ success: false, message: "Database error" });
-        } else {
-          res.json({ success: true, user });
-        }
-      }
-    );
+    const userData = {
+      ...user,
+      isAvailable: user.isAvailable ? true : false,
+      completedCalls: user.completedCalls || 0,
+      rejectedCalls: user.rejectedCalls || 0,
+      monthlyEarnings: user.monthlyEarnings || 0
+    };
+    db.users.set(user.id, userData);
+    res.json({ success: true, user });
   });
 
-  app.patch("/api/users/:id", (req, res) => {
+  app.patch("/api/users/:id", async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
+    const user = db.users.get(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
     if (updates.currentLocation) {
         updates.lastActive = Date.now();
-        const loc = updates.currentLocation;
         delete updates.currentLocation;
-        // In a real app we'd store lat/lng separately, but for this demo we'll just update lastActive
     }
-    const fields = Object.keys(updates).map(k => `${k} = ?`).join(", ");
-    const values = Object.values(updates);
-    db.run(`UPDATE users SET ${fields} WHERE id = ?`, [...values, id], (err) => {
-      if (err) {
-        res.status(500).json({ success: false, message: "Database error" });
-      } else {
-        io.emit('user_updated', { id, ...updates });
-        res.json({ success: true });
-      }
-    });
+    if (updates.isAvailable !== undefined) {
+      updates.isAvailable = updates.isAvailable ? true : false;
+    }
+
+    const updatedUser = { ...user, ...updates };
+    db.users.set(id, updatedUser);
+    io.emit('user_updated', { id, ...updates });
+    res.json({ success: true });
   });
 
   app.post("/api/analyze-performance", async (req, res) => {
@@ -563,24 +556,28 @@ async function startServer() {
     }
   });
 
-  app.get("/api/users/:id/report-data", (req, res) => {
+  app.get("/api/users/:id/report-data", async (req, res) => {
     const { id } = req.params;
-    db.get("SELECT * FROM users WHERE id = ?", [id], (err, user) => {
-      if (err) {
-        return res.status(500).json({ success: false, message: "Database error" });
-      }
-      if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
-      }
+    const user = db.users.get(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-      db.all("SELECT c.*, m.distance, m.totalTat as tripTime FROM calls c LEFT JOIN metrics m ON c.id = m.callId WHERE c.assignedPhleboId = ? ORDER BY c.collectedAt DESC", [id], (err, calls) => {
-        if (err) {
-          return res.status(500).json({ success: false, message: "Database error" });
-        }
-        res.json({ success: true, user, calls });
+    const calls = Array.from(db.calls.values())
+      .filter((c: any) => c.assignedPhleboId === id)
+      .sort((a: any, b: any) => (b.collectedAt || 0) - (a.collectedAt || 0))
+      .map((c: any) => {
+        const m = Array.from(db.metrics.values()).find((metric: any) => metric.callId === c.id);
+        return {
+          ...c,
+          distance: m ? m.distance : null,
+          tripTime: m ? m.totalTat : null
+        };
       });
-    });
+
+    res.json({ success: true, user, calls });
   });
+
 
   app.use(api404);
 
@@ -603,6 +600,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(join(__dirname, "dist")));
+    
+    // Return 404 for missing assets
+    app.use('/assets', (req, res) => {
+      res.status(404).send('Not Found');
+    });
+
     app.get('*all', (req, res) => {
       res.sendFile(join(__dirname, "dist/index.html"));
     });
@@ -611,10 +614,6 @@ async function startServer() {
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
-  } catch (error) {
-    console.error("Failed to start server:", error);
-    process.exit(1);
-  }
 }
 
 startServer();

@@ -1,4 +1,4 @@
-import { SystemConfig, DiagnosticTest, DiagnosticLab, Hospital } from './types';
+import { SystemConfig, DiagnosticTest, DiagnosticLab, Hospital } from './types.ts';
 
 export const INITIAL_CONFIG: SystemConfig = {
   withinTatRate: 15,

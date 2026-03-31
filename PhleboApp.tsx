@@ -40,6 +40,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [geoError, setGeoError] = useState<string | null>(null);
   const [isSimulatingGps, setIsSimulatingGps] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
+  const [showNavOptions, setShowNavOptions] = useState(false);
   const [verificationInput, setVerificationInput] = useState('');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -79,9 +80,6 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     const weekMs = 7 * dayMs;
     const monthMs = 30 * dayMs;
 
-    console.log("PhleboApp history:", history);
-    console.log("PhleboApp currentUser:", currentUser);
-
     return history.filter(h => {
       const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || currentUser?.role === 'DEVELOPER';
       if (!isAdmin && h.phleboId !== currentUser?.id) return false;
@@ -91,8 +89,6 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       return timeDiff <= monthMs;
     });
   }, [history, tripFilter, currentUser?.id]);
-
-  console.log("PhleboApp myTrips:", myTrips);
 
   const handleDownloadInvoice = (trip: CallMetrics) => {
     const doc = new jsPDF() as any;
@@ -178,7 +174,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const handleArrived = async () => {
     if (!activeCall) return;
     if (isSimulatingGps) {
-      onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id);
+      onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id, {
+        arrivedLocation: currentUser.currentLocation || { lat: 0, lng: 0, address: 'Simulated' }
+      });
       setGeoError(null);
       return;
     }
@@ -186,7 +184,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       const pos = await getCurrentLocation();
       const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'Live' };
       if (isWithinGeofence(loc, activeCall.destination, config.geofenceRadiusMeters)) {
-        onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id);
+        onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id, {
+          arrivedLocation: loc
+        });
         setGeoError(null);
       } else {
         const dist = calculateDistance(loc, activeCall.destination);
@@ -220,8 +220,21 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 
   const handleNavigate = () => {
     if (!activeCall) return;
+    setShowNavOptions(true);
+  };
+
+  const navigateWithGoogleMaps = () => {
+    if (!activeCall) return;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${activeCall.destination.lat},${activeCall.destination.lng}`;
     window.open(url, '_blank');
+    setShowNavOptions(false);
+  };
+
+  const navigateWithWaze = () => {
+    if (!activeCall) return;
+    const url = `https://waze.com/ul?ll=${activeCall.destination.lat},${activeCall.destination.lng}&navigate=yes`;
+    window.open(url, '_blank');
+    setShowNavOptions(false);
   };
 
   const handleCallPatient = () => {
@@ -782,6 +795,23 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  <button type="submit" className="w-full bg-brand-green text-white py-5 rounded-3xl font-black uppercase tracking-[0.2em] shadow-xl hover:scale-[1.02] active:scale-95 transition-all mt-4">Confirm Roster</button>
               </form>
            </div>
+        </div>
+      )}
+
+      {showNavOptions && (
+        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-2xl z-[400] flex items-center justify-center p-6" onClick={() => setShowNavOptions(false)}>
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-8 flex flex-col items-center gap-6 shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
+             <h3 className="font-black text-lg uppercase tracking-widest text-brand-purple">Choose Navigation</h3>
+             <button onClick={navigateWithGoogleMaps} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg flex items-center justify-center gap-2">
+                <MapPin size={16} /> Google Maps
+             </button>
+             <button onClick={navigateWithWaze} className="w-full bg-cyan-500 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg flex items-center justify-center gap-2">
+                <MapPin size={16} /> Waze
+             </button>
+             <button onClick={() => setShowNavOptions(false)} className="w-full bg-slate-100 text-slate-500 py-4 rounded-2xl font-black uppercase text-xs tracking-widest mt-2">
+                Cancel
+             </button>
+          </div>
         </div>
       )}
 

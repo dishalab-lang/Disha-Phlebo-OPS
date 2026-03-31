@@ -1,27 +1,33 @@
 
-export enum CallStatus {
-  PENDING = 'PENDING',
-  ACCEPTED = 'ACCEPTED',
-  VISITING = 'VISITING',
-  COLLECTED = 'COLLECTED',
-  DELIVERED = 'DELIVERED', 
-  COMPLETED = 'COMPLETED',
-  REJECTED = 'REJECTED',
-  IN_PROGRESS = 'IN_PROGRESS'
-}
+export const CallStatus = {
+  PENDING: 'PENDING',
+  ACCEPTED: 'ACCEPTED',
+  VISITING: 'VISITING',
+  COLLECTED: 'COLLECTED',
+  DELIVERED: 'DELIVERED', 
+  COMPLETED: 'COMPLETED',
+  REJECTED: 'REJECTED',
+  IN_PROGRESS: 'IN_PROGRESS'
+} as const;
 
-export enum CallType {
-  HOME_VISIT = 'HOME_VISIT',
-  HOSPITAL = 'HOSPITAL'
-}
+export type CallStatus = typeof CallStatus[keyof typeof CallStatus];
 
-export enum PaymentMode {
-  CASH = 'CASH',
-  UPI = 'UPI',
-  CARD = 'CARD',
-  LINK = 'LINK',
-  UNPAID = 'UNPAID'
-}
+export const CallType = {
+  HOME_VISIT: 'HOME_VISIT',
+  HOSPITAL: 'HOSPITAL'
+} as const;
+
+export type CallType = typeof CallType[keyof typeof CallType];
+
+export const PaymentMode = {
+  CASH: 'CASH',
+  UPI: 'UPI',
+  CARD: 'CARD',
+  LINK: 'LINK',
+  UNPAID: 'UNPAID'
+} as const;
+
+export type PaymentMode = typeof PaymentMode[keyof typeof PaymentMode];
 
 export interface Location {
   lat: number;
@@ -86,6 +92,7 @@ export interface CollectionCall {
   isOtpLocked: boolean;
   type: CallType;
   destination: Location;
+  arrivedLocation?: Location;
   placedAt: number;
   acceptedAt?: number;
   visitedAt?: number;
