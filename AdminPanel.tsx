@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { SystemConfig, CallMetrics, Phlebotomist, CollectionCall, CallStatus, DiagnosticTest, UserStatus, DiagnosticLab, StaffRole, TatBracket, Hospital } from './types';
 import { 
   Settings, Zap, Save, Users, FlaskConical, Route, Clock, 
@@ -83,6 +83,60 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG' | 'PERFORMANCE'>('FLEET');
   const [editedConfig, setEditedConfig] = useState(config);
   const [performanceReports, setPerformanceReports] = useState<Record<string, PerformanceReport>>({});
+  const [dbConfigData, setDbConfigData] = useState<string | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split('\n');
+      const newTests: DiagnosticTest[] = [];
+      
+      lines.forEach((line, index) => {
+        if (!line.trim()) return;
+        const [name, category, priceStr] = line.split(',').map(s => s.trim());
+        if (name && category && priceStr) {
+          if (name.toLowerCase() === 'name' || name.toLowerCase() === 'diagnostic identity') return;
+          const price = Number(priceStr);
+          if (!isNaN(price)) {
+            newTests.push({
+              id: 'T' + Date.now() + Math.random().toString(36).substring(2, 7) + index,
+              name,
+              category,
+              price
+            });
+          }
+        }
+      });
+      
+      if (newTests.length > 0) {
+        onUpdateTests([...tests, ...newTests]);
+        alert(`Successfully imported ${newTests.length} tests.`);
+      } else {
+        alert('No valid tests found in CSV. Format should be: name,category,price');
+      }
+      
+      if (csvFileInputRef.current) {
+        csvFileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFetchConfig = async () => {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      setDbConfigData(JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.error(err);
+      alert('Failed to fetch config from database');
+    }
+  };
   
   const [isRegisteringStaff, setIsRegisteringStaff] = useState(false);
   const [editingTest, setEditingTest] = useState<DiagnosticTest | null>(null);
@@ -624,9 +678,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Diagnostic Service Catalogue</h3>
                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Enterprise grade test menu & pricing tiers</p>
             </div>
-            <button onClick={() => setIsAddingTest(true)} className="bg-brand-purple text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg">
-               <PlusCircle size={18} /> New Diagnostic Item
-            </button>
+            <div className="flex gap-4">
+              <input 
+                type="file" 
+                accept=".csv" 
+                ref={csvFileInputRef} 
+                onChange={handleCsvUpload} 
+                className="hidden" 
+              />
+              <button onClick={() => csvFileInputRef.current?.click()} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-slate-800 transition-all">
+                 <Download size={18} /> Bulk Upload CSV
+              </button>
+              <button onClick={() => setIsAddingTest(true)} className="bg-brand-purple text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg">
+                 <PlusCircle size={18} /> New Diagnostic Item
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
@@ -772,19 +838,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Security Authorization PIN</label>
                      <input type="text" maxLength={4} value={editedConfig.securityPin} onChange={e => setEditedConfig({...editedConfig, securityPin: e.target.value})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-2xl text-brand-purple tracking-[1em] text-center outline-none" />
                   </div>
-                  <button onClick={() => { 
-                    const parsedConfig = {
-                      ...editedConfig,
-                      withinTatRate: Number(editedConfig.withinTatRate),
-                      outsideTatRate: Number(editedConfig.outsideTatRate),
-                      baseIncentive: Number(editedConfig.baseIncentive),
-                      tatBrackets: (editedConfig.tatBrackets || []).map(b => ({ maxKm: Number(b.maxKm), tatMinutes: Number(b.tatMinutes) }))
-                    };
-                    onUpdateConfig(parsedConfig); 
-                    alert("Global enterprise standards updated."); 
-                  }} className="w-full bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
-                    <Save size={20} /> Synchronize Global Config
-                  </button>
+                  <div className="flex gap-4">
+                    <button onClick={() => { 
+                      const parsedConfig = {
+                        ...editedConfig,
+                        withinTatRate: Number(editedConfig.withinTatRate),
+                        outsideTatRate: Number(editedConfig.outsideTatRate),
+                        baseIncentive: Number(editedConfig.baseIncentive),
+                        tatBrackets: (editedConfig.tatBrackets || []).map(b => ({ maxKm: Number(b.maxKm), tatMinutes: Number(b.tatMinutes) }))
+                      };
+                      onUpdateConfig(parsedConfig); 
+                      alert("Global enterprise standards updated."); 
+                    }} className="flex-1 bg-brand-purple text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-brand-purple/90 transition-all flex items-center justify-center gap-3">
+                      <Save size={20} /> Synchronize Global Config
+                    </button>
+                    <button onClick={handleFetchConfig} className="flex-1 bg-slate-900 text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3">
+                      <Database size={20} /> Fetch DB Config
+                    </button>
+                  </div>
+                  {dbConfigData && (
+                    <div className="mt-6 p-6 bg-slate-900 rounded-2xl relative">
+                      <button onClick={() => setDbConfigData(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+                        <X size={20} />
+                      </button>
+                      <h4 className="text-white font-black text-sm mb-4 uppercase tracking-widest">Database Configuration</h4>
+                      <pre className="text-brand-green font-mono text-xs overflow-x-auto">
+                        {dbConfigData}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </div>
 

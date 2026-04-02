@@ -24,7 +24,7 @@ interface PhleboAppProps {
   config: SystemConfig;
   history: CallMetrics[];
   onUpdateStatus: (id: string, status: CallStatus, phleboId: string, updates?: any) => void;
-  onResendOtp: (id: string) => void;
+  onResendOtp: (id: string, isHandover?: boolean) => void;
   onVerifyOtp: (id: string, pin: string) => Promise<{ success: boolean; errorMsg: string }>
   onUpdateLocation: (id: string, location: Location) => void;
   onBookAppointment: (apt: Partial<Appointment>) => void;
@@ -42,6 +42,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [showUpiModal, setShowUpiModal] = useState(false);
   const [showNavOptions, setShowNavOptions] = useState(false);
   const [verificationInput, setVerificationInput] = useState('');
+  const [handoverInput, setHandoverInput] = useState('');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [photoType, setPhotoType] = useState<'VISIT' | 'SAMPLE' | 'HANDOVER' | null>(null);
@@ -544,9 +545,37 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                        </button>
                     )}
                     {activeCall.status === CallStatus.COLLECTED && (
-                       <button onClick={() => onUpdateStatus(activeCall.id, CallStatus.DELIVERED, currentUser.id)} className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4">
-                          <PackageCheck size={24} /> Handover to Lab Hub
-                       </button>
+                       <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
+                          <div className="flex justify-between items-center px-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Dispatch Handover PIN</p>
+                            <button 
+                              onClick={() => onResendOtp(activeCall.id, true)}
+                              className="text-[9px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-all"
+                            >
+                              Resend PIN
+                            </button>
+                          </div>
+                          <input 
+                            type="text" maxLength={4} placeholder="----"
+                            value={handoverInput}
+                            onChange={(e) => setHandoverInput(e.target.value.replace(/[^0-9]/g, ''))}
+                            className="w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10"
+                          />
+                          <button 
+                             onClick={() => {
+                               if (handoverInput === activeCall.handoverCode) {
+                                 onUpdateStatus(activeCall.id, CallStatus.DELIVERED, currentUser.id);
+                                 setHandoverInput('');
+                               } else {
+                                 alert("Invalid Handover PIN. Please confirm with Dispatch.");
+                               }
+                             }}
+                             disabled={handoverInput.length < 4}
+                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${handoverInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
+                          >
+                             <PackageCheck size={24} /> Handover to Lab Hub
+                          </button>
+                       </div>
                     )}
                  </div>
 
@@ -648,8 +677,8 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
               </div>
            </div>
            <div className="space-y-3">
-              {myTrips.length > 0 ? myTrips.map((trip, idx) => (
-                 <div key={idx} className="bg-white p-6 rounded-[1.5rem] border shadow-sm flex justify-between items-center group">
+              {myTrips.length > 0 ? myTrips.map((trip) => (
+                 <div key={trip.callId} className="bg-white p-6 rounded-[1.5rem] border shadow-sm flex justify-between items-center group">
                     <div className="flex items-center gap-4">
                        <div className="w-10 h-10 rounded-xl bg-brand-purple/5 flex items-center justify-center text-brand-purple">
                           <CheckSquare size={20} />

@@ -86,6 +86,7 @@ export interface CollectionCall {
   patientName: string;
   patientPhone: string;
   verificationCode: string;
+  handoverCode: string;
   otpGeneratedAt: number;
   otpExpiresAt: number;
   otpRetryCount: number;

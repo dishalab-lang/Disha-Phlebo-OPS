@@ -20,10 +20,14 @@ interface DashboardProps {
   tests: DiagnosticTest[];
   onCreateCall: (call: Partial<CollectionCall>) => void;
   onUpdateStatus?: (id: string, status: CallStatus) => void;
+  onResendOtp: (id: string, isHandover?: boolean) => void;
   onUpdateAppointmentStatus: (id: string, status: 'COMPLETED' | 'PENDING' | 'SCHEDULED' | 'CANCELLED') => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments, config, labs, hospitals, phleboList, tests, onCreateCall, onUpdateStatus, onUpdateAppointmentStatus }) => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+  currentUser, calls, appointments, config, labs, hospitals, phleboList, tests, 
+  onCreateCall, onUpdateStatus, onResendOtp, onUpdateAppointmentStatus 
+}) => {
   const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE' | 'COMPLETED'>('QUEUE');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
@@ -274,6 +278,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                 <tr>
                   <th className="px-6 py-4">Patient</th>
                   <th className="px-6 py-4 text-center">Authorization PIN</th>
+                  <th className="px-6 py-4 text-center">Handover PIN</th>
                   <th className="px-6 py-4 text-center">Status</th>
                 </tr>
               </thead>
@@ -296,12 +301,27 @@ const Dashboard: React.FC<DashboardProps> = ({ currentUser, calls, appointments,
                       <td className="px-6 py-6 text-center">
                         <div className="flex flex-col items-center gap-1">
                           <span className={`text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest ${call.isOtpLocked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-brand-purple/5 text-brand-purple border-brand-purple/20'}`}>
-                            {call.isOtpLocked ? 'LOCKED' : (call.status === CallStatus.VISITING ? call.verificationCode : '****')}
+                            {call.isOtpLocked ? 'LOCKED' : call.verificationCode}
                           </span>
                           {!call.isOtpLocked && call.status === CallStatus.VISITING && (
                             <span className="text-[7px] font-black text-slate-400 uppercase">
                               Exp in {Math.max(0, Math.floor((call.otpExpiresAt - currentTime) / 1000))}s
                             </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-6 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-sm font-black px-4 py-2 rounded-xl border font-mono tracking-widest bg-brand-green/5 text-brand-green border-brand-green/20">
+                            {call.handoverCode}
+                          </span>
+                          {call.status === CallStatus.COLLECTED && (
+                            <button 
+                              onClick={() => onResendOtp(call.id, true)}
+                              className="text-[7px] font-black text-brand-green uppercase tracking-widest hover:underline"
+                            >
+                              Regenerate
+                            </button>
                           )}
                         </div>
                       </td>

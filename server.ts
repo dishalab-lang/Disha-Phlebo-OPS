@@ -6,67 +6,88 @@ import { GoogleGenAI } from '@google/genai';
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData.ts';
+import { dbHelper } from './dbHelper.ts';
 
-// --- In-Memory Data Store ---
+// --- In-Memory Data Store (Backed by SQLite) ---
 const db = {
-  users: new Map(),
-  calls: new Map(),
-  metrics: new Map(),
-  config: { system_config: JSON.stringify(INITIAL_CONFIG) },
-  labs: new Map(),
-  hospitals: new Map(),
-  logs: [] as any[]
+  users: dbHelper.getUsers(),
+  calls: dbHelper.getCalls(),
+  metrics: dbHelper.getMetrics(),
+  config: { system_config: dbHelper.getConfig() || JSON.stringify(INITIAL_CONFIG) },
+  labs: dbHelper.getLabs(),
+  hospitals: dbHelper.getHospitals(),
+  logs: dbHelper.getLogs()
 };
 
-// Initialize with mock data
-MOCK_LABS.forEach(l => db.labs.set(l.id, {
-  id: l.id,
-  name: l.name,
-  lat: l.location?.lat || 0,
-  lng: l.location?.lng || 0,
-  geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
-  adminId: null
-}));
+// Initialize with mock data if empty
+if (db.labs.size === 0) {
+  MOCK_LABS.forEach(l => {
+    const data = {
+      id: l.id,
+      name: l.name,
+      lat: l.location?.lat || 0,
+      lng: l.location?.lng || 0,
+      geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
+      adminId: null
+    };
+    db.labs.set(l.id, data);
+    dbHelper.setLab(l.id, data);
+  });
+}
 
-MOCK_HOSPITALS.forEach(h => db.hospitals.set(h.id, {
-  id: h.id,
-  name: h.name,
-  address: h.address || null,
-  lat: h.lat || 0,
-  lng: h.lng || 0
-}));
+if (db.hospitals.size === 0) {
+  MOCK_HOSPITALS.forEach(h => {
+    const data = {
+      id: h.id,
+      name: h.name,
+      address: h.address || null,
+      lat: h.lat || 0,
+      lng: h.lng || 0
+    };
+    db.hospitals.set(h.id, data);
+    dbHelper.setHospital(h.id, data);
+  });
+}
 
-// Default Admin User
-const defaultAdmin = {
-  id: 'ADMIN-1',
-  name: 'System Admin',
-  username: 'admin',
-  password: '123',
-  role: 'ADMIN',
-  status: 'ACTIVE',
-  isAvailable: true,
-  completedCalls: 0,
-  rejectedCalls: 0,
-  monthlyEarnings: 0
-};
-db.users.set(defaultAdmin.id, defaultAdmin);
+if (db.users.size === 0) {
+  // Default Admin User
+  const defaultAdmin = {
+    id: 'ADMIN-1',
+    name: 'System Admin',
+    username: 'admin',
+    password: '123',
+    role: 'ADMIN',
+    status: 'ACTIVE',
+    isAvailable: true,
+    completedCalls: 0,
+    rejectedCalls: 0,
+    monthlyEarnings: 0
+  };
+  db.users.set(defaultAdmin.id, defaultAdmin);
+  dbHelper.setUser(defaultAdmin.id, defaultAdmin);
 
-// Default Phlebotomist
-const defaultPhlebo = {
-  id: 'P-1',
-  name: 'John Phlebo',
-  username: 'phlebo',
-  password: '123',
-  role: 'PHLEBOTOMIST',
-  status: 'ACTIVE',
-  isAvailable: true,
-  completedCalls: 0,
-  rejectedCalls: 0,
-  monthlyEarnings: 0,
-  labId: 'LAB01'
-};
-db.users.set(defaultPhlebo.id, defaultPhlebo);
+  // Default Phlebotomist
+  const defaultPhlebo = {
+    id: 'P-1',
+    name: 'John Phlebo',
+    username: 'phlebo',
+    password: '123',
+    role: 'PHLEBOTOMIST',
+    status: 'ACTIVE',
+    isAvailable: true,
+    completedCalls: 0,
+    rejectedCalls: 0,
+    monthlyEarnings: 0,
+    labId: 'LAB01'
+  };
+  db.users.set(defaultPhlebo.id, defaultPhlebo);
+  dbHelper.setUser(defaultPhlebo.id, defaultPhlebo);
+}
 
+// Ensure config is saved
+if (!dbHelper.getConfig()) {
+  dbHelper.setConfig(db.config.system_config);
+}
 // --- End In-Memory Data Store ---
 
 const __filename = fileURLToPath(import.meta.url);
@@ -135,6 +156,7 @@ async function startServer() {
 
     const callId = `CALL-${externalId}`;
     const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const handoverCode = Math.floor(1000 + Math.random() * 9000).toString();
     const otpGeneratedAt = Date.now();
     const otpExpiresAt = Date.now() + 24 * 60 * 60 * 1000;
     const placedAt = scheduledAt ? new Date(scheduledAt).getTime() : Date.now();
@@ -148,6 +170,7 @@ async function startServer() {
       patientName,
       patientPhone,
       verificationCode,
+      handoverCode,
       otpGeneratedAt,
       otpExpiresAt,
       type,
@@ -163,6 +186,7 @@ async function startServer() {
     };
 
     db.calls.set(callId, callData);
+    dbHelper.setCall(callId, callData);
     const call = {
       ...callData,
       billing,
@@ -188,14 +212,16 @@ async function startServer() {
       details = "[Unserializable Body]";
     }
 
-    db.logs.push({
+    const logEntry = {
       id: `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       timestamp: Date.now(),
       userId,
       action,
       details,
       ip: req.ip
-    });
+    };
+    db.logs.push(logEntry);
+    dbHelper.addLog(logEntry.id, logEntry);
     next();
   };
 
@@ -227,6 +253,7 @@ async function startServer() {
   app.post("/api/config", async (req, res) => {
     const config = req.body;
     db.config.system_config = JSON.stringify(config);
+    dbHelper.setConfig(db.config.system_config);
     res.json({ success: true });
   });
 
@@ -244,15 +271,18 @@ async function startServer() {
   app.post("/api/labs", async (req, res) => {
     const labs = req.body;
     db.labs.clear();
+    dbHelper.clearLabs();
     labs.forEach((l: any) => {
-      db.labs.set(l.id, {
+      const data = {
         id: l.id,
         name: l.name,
         lat: l.location?.lat || 0,
         lng: l.location?.lng || 0,
         geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
         adminId: l.adminId || null
-      });
+      };
+      db.labs.set(l.id, data);
+      dbHelper.setLab(l.id, data);
     });
     res.json({ success: true });
   });
@@ -264,14 +294,17 @@ async function startServer() {
   app.post("/api/hospitals", async (req, res) => {
     const hospitals = req.body;
     db.hospitals.clear();
+    dbHelper.clearHospitals();
     hospitals.forEach((h: any) => {
-      db.hospitals.set(h.id, {
+      const data = {
         id: h.id,
         name: h.name,
         address: h.address || null,
         lat: h.lat || 0,
         lng: h.lng || 0
-      });
+      };
+      db.hospitals.set(h.id, data);
+      dbHelper.setHospital(h.id, data);
     });
     res.json({ success: true });
   });
@@ -307,6 +340,7 @@ async function startServer() {
       status: m.status
     };
     db.metrics.set(id, metricData);
+    dbHelper.setMetric(id, metricData);
     io.emit('metrics_updated', m);
     res.json({ success: true });
   });
@@ -345,7 +379,8 @@ async function startServer() {
           arrivedLocation: c.arrivedLat ? { lat: c.arrivedLat, lng: c.arrivedLng, address: c.arrivedAddress } : undefined,
           billing: parsedBilling,
           isPriority: !!c.isPriority,
-          isOtpLocked: !!c.isOtpLocked
+          isOtpLocked: !!c.isOtpLocked,
+          handoverCode: c.handoverCode || ''
         };
       });
     res.json(calls);
@@ -358,6 +393,7 @@ async function startServer() {
       patientName: call.patientName,
       patientPhone: call.patientPhone,
       verificationCode: call.verificationCode,
+      handoverCode: call.handoverCode,
       otpGeneratedAt: call.otpGeneratedAt,
       otpExpiresAt: call.otpExpiresAt,
       type: call.type,
@@ -372,6 +408,7 @@ async function startServer() {
       billingJson: JSON.stringify(call.billing)
     };
     db.calls.set(call.id, callData);
+    dbHelper.setCall(call.id, callData);
     io.emit('call_created', call);
     res.json({ success: true });
   });
@@ -396,16 +433,19 @@ async function startServer() {
     if (call.verificationCode !== otp) {
       const newRetryCount = (call.otpRetryCount || 0) + 1;
       const isLocked = newRetryCount >= 3;
-      db.calls.set(callId, {
+      const updatedCall = {
         ...call,
         otpRetryCount: newRetryCount,
         isOtpLocked: isLocked ? true : false
-      });
+      };
+      db.calls.set(callId, updatedCall);
+      dbHelper.setCall(callId, updatedCall);
       return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
     
     const updatedCall = { ...call, status: 'IN_PROGRESS' };
     db.calls.set(callId, updatedCall);
+    dbHelper.setCall(callId, updatedCall);
     io.emit('call_updated', { id: callId, status: 'IN_PROGRESS' });
     syncToCentralLIS(callId, 'IN_PROGRESS');
     res.json({ success: true });
@@ -439,6 +479,7 @@ async function startServer() {
 
     const updatedCall = { ...call, ...updates };
     db.calls.set(id, updatedCall);
+    dbHelper.setCall(id, updatedCall);
     
     const emitUpdates = { ...updates };
     if (emitUpdates.billingJson) {
@@ -466,6 +507,8 @@ async function startServer() {
       io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
     } else if (updates.status === 'VISITING') {
       io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${updatedCall.verificationCode}`, type: 'success' });
+    } else if (updates.status === 'COLLECTED') {
+      io.emit('notification', { message: `Samples collected for call ${id}. Handover PIN: ${updatedCall.handoverCode}`, type: 'success' });
     } else if (updates.status === 'COMPLETED') {
       io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
     }
@@ -488,6 +531,7 @@ async function startServer() {
       monthlyEarnings: user.monthlyEarnings || 0
     };
     db.users.set(user.id, userData);
+    dbHelper.setUser(user.id, userData);
     res.json({ success: true, user });
   });
 
@@ -509,6 +553,7 @@ async function startServer() {
 
     const updatedUser = { ...user, ...updates };
     db.users.set(id, updatedUser);
+    dbHelper.setUser(id, updatedUser);
     io.emit('user_updated', { id, ...updates });
     res.json({ success: true });
   });

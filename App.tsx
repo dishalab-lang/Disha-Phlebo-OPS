@@ -55,9 +55,17 @@ const App: React.FC = () => {
         fetch('/api/labs'),
         fetch('/api/hospitals')
       ]);
-      if (callsRes.ok) setCalls(await callsRes.json());
+      if (callsRes.ok) {
+        const fetchedCalls = await callsRes.json();
+        const unique = Array.from(new Map(fetchedCalls.map((c: any) => [c.id, c])).values()) as CollectionCall[];
+        setCalls(unique);
+      }
       if (usersRes.ok) setAllPhlebos(await usersRes.json());
-      if (metricsRes.ok) setPerformanceHistory(await metricsRes.json());
+      if (metricsRes.ok) {
+        const fetchedMetrics = await metricsRes.json();
+        const unique = Array.from(new Map(fetchedMetrics.map((m: any) => [m.id || m.callId, m])).values()) as CallMetrics[];
+        setPerformanceHistory(unique);
+      }
       if (configRes.ok) {
         const savedConfig = await configRes.json();
         if (savedConfig) setConfig(savedConfig);
@@ -92,13 +100,19 @@ const App: React.FC = () => {
     
     socket.on('call_created', (call) => {
       setCalls(prev => {
-        if (prev.some(c => c.id === call.id)) return prev;
+        const exists = prev.some(c => c.id === call.id);
+        if (exists) return prev;
         return [call, ...prev];
       });
     });
     
     socket.on('call_updated', (updates) => {
-      setCalls(prev => prev.map(c => c.id === updates.id ? { ...c, ...updates } : c));
+      setCalls(prev => {
+        const updated = prev.map(c => c.id === updates.id ? { ...c, ...updates } : c);
+        // Ensure no duplicates even after update (unlikely but safe)
+        const unique = Array.from(new Map(updated.map(c => [c.id, c])).values());
+        return unique;
+      });
     });
     
     socket.on('user_updated', (updates) => {
@@ -139,7 +153,10 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(metrics)
       });
-      setPerformanceHistory(prev => [metrics, ...prev]);
+      setPerformanceHistory(prev => {
+        if (prev.some(m => m.callId === metrics.callId)) return prev;
+        return [metrics, ...prev];
+      });
       setAllPhlebos(prev => prev.map(p => {
         if (p.id === metrics.phleboId) {
           return {
@@ -164,6 +181,7 @@ const App: React.FC = () => {
       labId: call.labId || (labs.length > 0 ? labs[0].id : ''),
       placedAt: now,
       verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
+      handoverCode: Math.floor(1000 + Math.random() * 9000).toString(),
       otpGeneratedAt: now,
       otpExpiresAt: now + (10 * 60 * 1000), // 10 minutes
       otpRetryCount: 0,
@@ -177,7 +195,11 @@ const App: React.FC = () => {
         body: JSON.stringify(newCallObj)
       });
       if (res.ok) {
-        setCalls(prev => [newCallObj, ...prev]);
+        setCalls(prev => {
+          const exists = prev.some(c => c.id === newCallObj.id);
+          if (exists) return prev;
+          return [newCallObj, ...prev];
+        });
         setToast({ message: `Deployment Active: ${newCallObj.patientName}`, type: 'success' });
         fetchData();
       }
@@ -188,10 +210,12 @@ const App: React.FC = () => {
 
 
 
-  const handleResendOtp = useCallback(async (callId: string) => {
+  const handleResendOtp = useCallback(async (callId: string, isHandover: boolean = false) => {
     const now = Date.now();
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
-    const updates = {
+    const updates: any = isHandover ? {
+      handoverCode: newPin
+    } : {
       verificationCode: newPin,
       otpGeneratedAt: now,
       otpExpiresAt: now + (10 * 60 * 1000),
@@ -507,7 +531,22 @@ const App: React.FC = () => {
             onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])}
           />
         )}
-        {activeRoute === 'DISPATCH' && <Dashboard currentUser={currentUser} calls={calls} appointments={appointments} config={config} labs={labs} hospitals={hospitals} tests={tests} phleboList={allPhlebos} onCreateCall={handleCreateCall} onUpdateStatus={updateCallStatus} onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])} />}
+        {activeRoute === 'DISPATCH' && (
+          <Dashboard 
+            currentUser={currentUser} 
+            calls={calls} 
+            appointments={appointments} 
+            config={config} 
+            labs={labs} 
+            hospitals={hospitals} 
+            tests={tests} 
+            phleboList={allPhlebos} 
+            onCreateCall={handleCreateCall} 
+            onUpdateStatus={updateCallStatus} 
+            onResendOtp={handleResendOtp}
+            onUpdateAppointmentStatus={(id, s) => setAppointments(prev => prev.map(a => a.id === id ? {...a, status: s} : a) as Appointment[])} 
+          />
+        )}
         {activeRoute === 'ADMIN' && (
           <AdminPanel 
             config={config} 
