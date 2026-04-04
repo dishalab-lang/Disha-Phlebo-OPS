@@ -45,10 +45,10 @@ export const MOCK_TESTS: DiagnosticTest[] = [
 ];
 
 export const MOCK_LABS: DiagnosticLab[] = [
-  { id: 'LAB01', name: 'Main Hub', location: { lat: 19.0760, lng: 72.8777, address: 'Mumbai' }, geofenceRadiusMeters: 10000 },
+  { id: 'LAB01', name: 'Main Hub', email: 'PHLEBO.DISHA@GMAIL.COM', location: { lat: 19.0760, lng: 72.8777, address: 'Mumbai' }, geofenceRadiusMeters: 10000 },
 ];
 
 export const MOCK_HOSPITALS: Hospital[] = [
-    { id: 'HOS01', name: 'City Hospital', address: '123 Main St, Mumbai', lat: 19.0860, lng: 72.8877 },
-    { id: 'HOS02', name: 'General Hospital', address: '456 Park Ave, Mumbai', lat: 19.0660, lng: 72.8677 },
+    { id: 'HOS01', name: 'City Hospital', email: 'PHLEBO.DISHA@GMAIL.COM', address: '123 Main St, Mumbai', lat: 19.0860, lng: 72.8877 },
+    { id: 'HOS02', name: 'General Hospital', email: 'PHLEBO.DISHA@GMAIL.COM', address: '456 Park Ave, Mumbai', lat: 19.0660, lng: 72.8677 },
 ];

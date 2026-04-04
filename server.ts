@@ -7,6 +7,8 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData.ts';
 import { dbHelper } from './dbHelper.ts';
+import { sendEmail } from './emailService.ts';
+import { sendSMS } from './smsService.ts';
 
 // --- In-Memory Data Store (Backed by SQLite) ---
 const db = {
@@ -363,6 +365,30 @@ async function startServer() {
   });
 
   // Calls API
+  // Public Tracking Endpoint
+  app.get("/api/public/track/:id", (req, res) => {
+    const id = req.params.id;
+    const callData = db.calls.get(id);
+    if (!callData) return res.status(404).json({ success: false, message: "Call not found" });
+    
+    const phlebo = callData.assignedPhleboId ? db.users.get(callData.assignedPhleboId) : null;
+    
+    res.json({
+      success: true,
+      call: {
+        id: callData.id,
+        status: callData.status,
+        patientName: callData.patientName,
+        destination: { lat: callData.destLat, lng: callData.destLng, address: callData.destAddress }
+      },
+      phlebo: phlebo ? {
+        name: phlebo.name,
+        currentLocation: phlebo.currentLocation,
+        lastActive: phlebo.lastActive
+      } : null
+    });
+  });
+
   app.get("/api/calls", async (req, res) => {
     const calls = Array.from(db.calls.values())
       .sort((a: any, b: any) => b.placedAt - a.placedAt)
@@ -392,6 +418,7 @@ async function startServer() {
       id: call.id,
       patientName: call.patientName,
       patientPhone: call.patientPhone,
+      patientEmail: call.patientEmail,
       verificationCode: call.verificationCode,
       handoverCode: call.handoverCode,
       otpGeneratedAt: call.otpGeneratedAt,
@@ -403,6 +430,7 @@ async function startServer() {
       placedAt: call.placedAt,
       status: call.status,
       labId: call.labId,
+      hospitalId: call.hospitalId,
       estimatedTatMinutes: call.estimatedTatMinutes,
       isPriority: call.isPriority ? true : false,
       billingJson: JSON.stringify(call.billing)
@@ -410,6 +438,62 @@ async function startServer() {
     db.calls.set(call.id, callData);
     dbHelper.setCall(call.id, callData);
     io.emit('call_created', call);
+
+    // Send notification email to patient
+    if (call.patientEmail) {
+      sendEmail(
+        call.patientEmail,
+        `Booking Confirmed - Disha Phlebo`,
+        `Dear ${call.patientName}, your booking (ID: ${call.id}) has been confirmed. A phlebotomist will be assigned shortly.`,
+        `<h3>Booking Confirmed</h3>
+         <p>Dear ${call.patientName},</p>
+         <p>Your booking (ID: <b>${call.id}</b>) has been successfully placed.</p>
+         <p>A phlebotomist will be assigned to your location shortly.</p>
+         <p>Thank you for choosing Disha Phlebo.</p>`
+      ).catch(err => console.error("Failed to send booking email:", err));
+    }
+
+    // Send SMS to patient
+    if (call.patientPhone) {
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${call.id}`;
+      sendSMS(
+        call.patientPhone,
+        `Dear ${call.patientName}, your booking (ID: ${call.id}) is confirmed. Track your phlebotomist here: ${trackingLink} - Disha Phlebo`
+      ).catch(err => console.error("Failed to send booking SMS:", err));
+    }
+
+    // Send email to Hospital if applicable
+    if (call.hospitalId) {
+      const hospital = Array.from(db.hospitals.values()).find((h: any) => h.id === call.hospitalId);
+      if (hospital && hospital.email) {
+        sendEmail(
+          hospital.email,
+          `New Booking Notification - ${call.id}`,
+          `A new booking has been placed for patient ${call.patientName} at ${hospital.name}.`,
+          `<h3>New Booking Notification</h3>
+           <p>A new booking has been placed for patient <b>${call.patientName}</b>.</p>
+           <p>Booking ID: <b>${call.id}</b></p>
+           <p>Hospital: <b>${hospital.name}</b></p>`
+        ).catch(err => console.error("Failed to send hospital email:", err));
+      }
+    }
+
+    // Send email to Hub (Lab)
+    if (call.labId) {
+      const lab = Array.from(db.labs.values()).find((l: any) => l.id === call.labId);
+      if (lab && lab.email) {
+        sendEmail(
+          lab.email,
+          `New Hub Booking - ${call.id}`,
+          `A new booking has been assigned to your hub: ${call.id}.`,
+          `<h3>New Hub Booking</h3>
+           <p>A new booking has been assigned to your hub.</p>
+           <p>Booking ID: <b>${call.id}</b></p>
+           <p>Patient: <b>${call.patientName}</b></p>`
+        ).catch(err => console.error("Failed to send hub email:", err));
+      }
+    }
+
     res.json({ success: true });
   });
 
@@ -505,12 +589,73 @@ async function startServer() {
 
     if (updates.status === 'ACCEPTED') {
       io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
+      
+      // Send SMS to patient about phlebotomist assignment with tracking link
+      if (updatedCall.patientPhone) {
+        const phlebo = db.users.get(updatedCall.assignedPhleboId);
+        const phleboName = phlebo ? phlebo.name : 'A phlebotomist';
+        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, ${phleboName} is assigned to your booking ${id}. Track here: ${trackingLink} - Disha Phlebo`
+        ).catch(err => console.error("Failed to send assignment SMS:", err));
+      }
     } else if (updates.status === 'VISITING') {
       io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${updatedCall.verificationCode}`, type: 'success' });
+      
+      // Send SMS with verification PIN and tracking link
+      if (updatedCall.patientPhone) {
+        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, the phlebotomist has arrived. PIN: ${updatedCall.verificationCode}. Track: ${trackingLink} - Disha Phlebo`
+        ).catch(err => console.error("Failed to send arrival SMS:", err));
+      }
     } else if (updates.status === 'COLLECTED') {
       io.emit('notification', { message: `Samples collected for call ${id}. Handover PIN: ${updatedCall.handoverCode}`, type: 'success' });
+      
+      // Send SMS with handover PIN
+      if (updatedCall.patientPhone) {
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, samples collected (${updatedCall.sampleType || 'Standard'}). Your handover PIN is ${updatedCall.handoverCode}. - Disha Phlebo`
+        ).catch(err => console.error("Failed to send collection SMS:", err));
+      }
+    } else if (updates.status === 'IN_TRANSIT') {
+      io.emit('notification', { message: `Samples for call ${id} are now in transit to the lab.`, type: 'info' });
+      
+      if (updatedCall.patientPhone) {
+        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, your samples are in transit to the lab. Track: ${trackingLink} - Disha Phlebo`
+        ).catch(err => console.error("Failed to send transit SMS:", err));
+      }
+    } else if (updates.status === 'RECEIVED_AT_LAB') {
+      io.emit('notification', { message: `Samples for call ${id} received at the lab hub.`, type: 'success' });
+      
+      if (updatedCall.patientPhone) {
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, your samples have been received at the lab hub for processing. - Disha Phlebo`
+        ).catch(err => console.error("Failed to send received SMS:", err));
+      }
     } else if (updates.status === 'COMPLETED') {
       io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
+      
+      // Send completion email to patient
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Diagnostic Report Ready - Call ${id}`,
+          `Dear ${updatedCall.patientName}, your diagnostic report and invoice for call ${id} are now ready.`,
+          `<h3>Diagnostic Report Ready</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p>Your diagnostic report and invoice for booking <b>${id}</b> are now ready and processed.</p>
+           <p>You can view them in your dashboard.</p>
+           <p>Thank you for choosing Disha Phlebo.</p>`
+        ).catch(err => console.error("Failed to send completion email:", err));
+      }
     }
 
     res.json({ success: true });
@@ -651,7 +796,7 @@ async function startServer() {
       res.status(404).send('Not Found');
     });
 
-    app.get('*all', (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(join(__dirname, "dist/index.html"));
     });
   }

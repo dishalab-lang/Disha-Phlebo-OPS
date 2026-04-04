@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { 
-  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info
+  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink
 } from 'lucide-react';
 import { 
   CallStatus, CollectionCall, Phlebotomist, 
@@ -19,6 +19,110 @@ import PhleboApp from './PhleboApp';
 import AdminPanel from './AdminPanel';
 
 type MauiRoute = 'FIELD' | 'DISPATCH' | 'ADMIN' | 'PROFILE';
+
+const TrackingPage: React.FC<{ callId: string }> = ({ callId }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchTracking = async () => {
+      try {
+        const res = await fetch(`/api/public/track/${callId}`);
+        const json = await res.json();
+        if (json.success) setData(json);
+        else setError(json.message);
+      } catch (e) {
+        setError("Failed to load tracking info");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTracking();
+    const interval = setInterval(fetchTracking, 10000);
+    return () => clearInterval(interval);
+  }, [callId]);
+
+  if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-black uppercase tracking-widest text-slate-400">Loading Tracking...</div>;
+  if (error) return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-black uppercase tracking-widest text-red-400">{error}</div>;
+
+  const { call, phlebo } = data;
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-6 flex flex-col items-center">
+      <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl border-4 border-brand-purple/5 overflow-hidden">
+        <div className="bg-brand-purple p-8 text-white text-center">
+          <LogoBird size={48} />
+          <h1 className="text-xl font-black uppercase tracking-widest">Live Tracking</h1>
+          <p className="text-[10px] opacity-60 font-bold mt-1">Booking ID: {call.id}</p>
+        </div>
+        
+        <div className="p-8 space-y-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</p>
+              <p className="text-lg font-black text-slate-900 uppercase">{call.status}</p>
+            </div>
+            <div className="bg-green-50 px-4 py-2 rounded-xl border border-green-100 flex items-center gap-2">
+              <div className="w-2 h-2 bg-brand-green rounded-full animate-pulse" />
+              <span className="text-[10px] font-black text-brand-green uppercase tracking-widest">Live</span>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+             <div className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-brand-purple/10 rounded-full flex items-center justify-center text-brand-purple shrink-0">
+                   <User size={20} />
+                </div>
+                <div>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Phlebotomist</p>
+                   <p className="text-sm font-black text-slate-900">{phlebo ? phlebo.name : 'Awaiting Assignment'}</p>
+                </div>
+             </div>
+
+             {phlebo?.currentLocation && (
+               <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 bg-brand-green/10 rounded-full flex items-center justify-center text-brand-green shrink-0">
+                     <MapPin size={20} />
+                  </div>
+                  <div>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Location</p>
+                     <p className="text-sm font-black text-slate-900">
+                        {phlebo.currentLocation.lat.toFixed(4)}, {phlebo.currentLocation.lng.toFixed(4)}
+                     </p>
+                     <p className="text-[9px] font-bold text-slate-400 uppercase mt-1">Last seen: {new Date(phlebo.lastActive).toLocaleTimeString()}</p>
+                  </div>
+               </div>
+             )}
+
+             <div className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 shrink-0">
+                   <Navigation size={20} />
+                </div>
+                <div>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Destination</p>
+                   <p className="text-sm font-black text-slate-900">{call.destination.address}</p>
+                </div>
+             </div>
+          </div>
+
+          <div className="pt-4">
+             <a 
+               href={`https://www.google.com/maps/dir/?api=1&destination=${call.destination.lat},${call.destination.lng}`}
+               target="_blank"
+               rel="noopener noreferrer"
+               className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2"
+             >
+               <ExternalLink size={14} /> Open in Google Maps
+             </a>
+          </div>
+        </div>
+      </div>
+      
+      <p className="mt-8 text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">Disha Diagnostics Cloud</p>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -44,6 +148,26 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Phlebotomist | null>(() => {
     return null;
   });
+
+  const [trackingCallId, setTrackingCallId] = useState<string | null>(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/track/')) return path.split('/track/')[1];
+    return null;
+  });
+
+  useEffect(() => {
+    const handlePathChange = () => {
+      const path = window.location.pathname;
+      if (path.startsWith('/track/')) setTrackingCallId(path.split('/track/')[1]);
+      else setTrackingCallId(null);
+    };
+    window.addEventListener('popstate', handlePathChange);
+    return () => window.removeEventListener('popstate', handlePathChange);
+  }, []);
+
+  if (trackingCallId) {
+    return <TrackingPage callId={trackingCallId} />;
+  }
 
   const fetchData = useCallback(async () => {
     try {
@@ -242,7 +366,16 @@ const App: React.FC = () => {
       update.acceptedAt = Date.now();
       update.assignedPhleboId = phleboId;
     }
-    if (status === CallStatus.DELIVERED) {
+    if (status === CallStatus.COLLECTED) {
+      update.collectedAt = Date.now();
+    }
+    if (status === CallStatus.IN_TRANSIT) {
+      update.transitAt = Date.now();
+    }
+    if (status === CallStatus.RECEIVED_AT_LAB) {
+      update.receivedAt = Date.now();
+    }
+    if (status === CallStatus.DELIVERED || status === CallStatus.RECEIVED_AT_LAB) {
       const now = Date.now();
       const lab = labs.find(l => l.id === (calls.find(c => c.id === callId)?.labId)) || labs[0];
       const call = calls.find(c => c.id === callId);

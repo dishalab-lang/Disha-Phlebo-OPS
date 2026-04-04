@@ -7,7 +7,7 @@ import {
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
   UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight, Fingerprint,
   Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink, Radar,
-  Mic, Square, Play, Volume2, CreditCard, Link
+  Mic, Square, Play, Volume2, CreditCard, Link, BarChart3, Truck
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
 
@@ -35,7 +35,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   currentUser, calls, labs, appointments, tests, config, history, 
   onUpdateStatus, onResendOtp, onVerifyOtp, onUpdateLocation, onBookAppointment, onUpdateAppointmentStatus 
 }) => {
-  const [activeTab, setActiveTab] = useState<'TASKS' | 'TRIPS' | 'SCHEDULE'>('TASKS');
+  const [activeTab, setActiveTab] = useState<'TASKS' | 'TRIPS' | 'SCHEDULE' | 'REPORTS'>('TASKS');
   const [selectedActiveCallId, setSelectedActiveCallId] = useState<string | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
   const [isSimulatingGps, setIsSimulatingGps] = useState(false);
@@ -367,6 +367,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
         <button onClick={() => setActiveTab('SCHEDULE')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SCHEDULE' ? 'bg-brand-purple text-white shadow-md' : 'text-slate-400'}`}>
           Schedule
         </button>
+        <button onClick={() => setActiveTab('REPORTS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'REPORTS' ? 'bg-brand-purple text-white shadow-md' : 'text-slate-400'}`}>
+          Reports
+        </button>
       </div>
 
       {activeTab === 'TASKS' && (
@@ -527,13 +530,28 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                        </button>
                     )}
                     {activeCall.status === CallStatus.VISITING && (
-                       <button 
-                          onClick={handleVerifyAndStart} 
-                          disabled={activeCall.billing.paymentStatus === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || verificationInput.length < 4} 
-                          className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${activeCall.billing.paymentStatus === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
-                       >
-                          <Fingerprint size={24} /> Verify & Start Collection
-                       </button>
+                       <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample Logging</p>
+                          <select 
+                            value={activeCall.sampleType || ''} 
+                            onChange={(e) => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { sampleType: e.target.value })}
+                            className="w-full p-4 rounded-xl border-2 border-slate-100 text-xs font-bold focus:border-brand-purple outline-none"
+                          >
+                            <option value="">Select Sample Type</option>
+                            <option value="Blood">Blood</option>
+                            <option value="Urine">Urine</option>
+                            <option value="Swab">Swab</option>
+                            <option value="Stool">Stool</option>
+                            <option value="Sputum">Sputum</option>
+                          </select>
+                          <button 
+                             onClick={handleVerifyAndStart} 
+                             disabled={activeCall.billing.paymentStatus === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || !activeCall.sampleType || verificationInput.length < 4} 
+                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${activeCall.billing.paymentStatus === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && activeCall.sampleType && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
+                          >
+                             <Fingerprint size={24} /> Verify & Start Collection
+                          </button>
+                       </div>
                     )}
 
                     {activeCall.status === CallStatus.IN_PROGRESS && (
@@ -545,6 +563,15 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                        </button>
                     )}
                     {activeCall.status === CallStatus.COLLECTED && (
+                       <button 
+                          onClick={() => onUpdateStatus(activeCall.id, CallStatus.IN_TRANSIT, currentUser.id)} 
+                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-orange-500 text-white"
+                       >
+                          <Truck size={24} /> Start Transit to Lab
+                       </button>
+                    )}
+
+                    {activeCall.status === CallStatus.IN_TRANSIT && (
                        <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
                           <div className="flex justify-between items-center px-2">
                             <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Dispatch Handover PIN</p>
@@ -564,7 +591,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                           <button 
                              onClick={() => {
                                if (handoverInput === activeCall.handoverCode) {
-                                 onUpdateStatus(activeCall.id, CallStatus.DELIVERED, currentUser.id);
+                                 onUpdateStatus(activeCall.id, CallStatus.RECEIVED_AT_LAB, currentUser.id);
                                  setHandoverInput('');
                                } else {
                                  alert("Invalid Handover PIN. Please confirm with Dispatch.");
@@ -576,6 +603,15 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                              <PackageCheck size={24} /> Handover to Lab Hub
                           </button>
                        </div>
+                    )}
+
+                    {activeCall.status === CallStatus.RECEIVED_AT_LAB && (
+                       <button 
+                          onClick={() => onUpdateStatus(activeCall.id, CallStatus.COMPLETED, currentUser.id)} 
+                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
+                       >
+                          <CheckCircle2 size={24} /> Complete Task
+                       </button>
                     )}
                  </div>
 
@@ -861,6 +897,112 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
            <button className="mt-10 bg-white/10 text-white p-5 rounded-full hover:bg-white/20 transition-all"><X size={32}/></button>
         </div>
       )}
+      {activeTab === 'REPORTS' && (
+        <ReportsView history={history} currentUser={currentUser} />
+      )}
+    </div>
+  );
+};
+
+const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist }> = ({ history, currentUser }) => {
+  const [reportRange, setReportRange] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY');
+
+  const filteredHistory = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const weekMs = 7 * dayMs;
+    const monthMs = 30 * dayMs;
+
+    return history.filter(h => {
+      if (h.phleboId !== currentUser.id) return false;
+      const timeDiff = now - h.timestamp;
+      if (reportRange === 'DAILY') return timeDiff <= dayMs;
+      if (reportRange === 'WEEKLY') return timeDiff <= weekMs;
+      return timeDiff <= monthMs;
+    });
+  }, [history, reportRange, currentUser.id]);
+
+  const stats = useMemo(() => {
+    return {
+      totalCalls: filteredHistory.length,
+      completedSamples: filteredHistory.filter(h => h.status === 'COMPLETED').length,
+      totalRevenue: filteredHistory.reduce((sum, h) => sum + h.revenue, 0),
+      totalIncentive: filteredHistory.reduce((sum, h) => sum + h.incentive, 0),
+      totalDistance: filteredHistory.reduce((sum, h) => sum + h.distance, 0),
+    };
+  }, [filteredHistory]);
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF() as any;
+    doc.setFontSize(18);
+    doc.text(`Disha Diagnostics - Phlebotomist Report (${reportRange})`, 20, 20);
+    doc.setFontSize(12);
+    doc.text(`Phlebotomist: ${currentUser.name}`, 20, 30);
+    doc.text(`Generated At: ${new Date().toLocaleString()}`, 20, 35);
+
+    doc.autoTable({
+      startY: 45,
+      head: [['Metric', 'Value']],
+      body: [
+        ['Total Collection Calls', stats.totalCalls],
+        ['Samples Collected', stats.completedSamples],
+        ['Total Distance (km)', stats.totalDistance.toFixed(2)],
+        ['Total Revenue (₹)', stats.totalRevenue.toLocaleString()],
+        ['Total Incentive (₹)', stats.totalIncentive.toLocaleString()],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [139, 92, 246] }
+    });
+
+    doc.save(`Report_${currentUser.name}_${reportRange}_${Date.now()}.pdf`);
+  };
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div className="bg-white p-6 rounded-[2rem] border shadow-sm space-y-6">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+            <BarChart3 size={18} className="text-brand-purple" /> Performance Summary
+          </h3>
+          <div className="flex bg-slate-50 p-1 rounded-xl border gap-1">
+            {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(range => (
+              <button
+                key={range}
+                onClick={() => setReportRange(range)}
+                className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${reportRange === range ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400'}`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Calls</p>
+            <p className="text-3xl font-black text-slate-900">{stats.totalCalls}</p>
+          </div>
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Samples Collected</p>
+            <p className="text-3xl font-black text-brand-green">{stats.completedSamples}</p>
+          </div>
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Distance</p>
+            <p className="text-3xl font-black text-slate-900">{stats.totalDistance.toFixed(1)} <span className="text-sm">km</span></p>
+          </div>
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earnings</p>
+            <p className="text-3xl font-black text-brand-purple">₹{stats.totalIncentive.toLocaleString()}</p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleExportPDF}
+          className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all"
+        >
+          <Download size={18} /> Export Detailed Report (PDF)
+        </button>
+      </div>
     </div>
   );
 };

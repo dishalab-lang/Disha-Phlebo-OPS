@@ -4,6 +4,8 @@ export const CallStatus = {
   ACCEPTED: 'ACCEPTED',
   VISITING: 'VISITING',
   COLLECTED: 'COLLECTED',
+  IN_TRANSIT: 'IN_TRANSIT',
+  RECEIVED_AT_LAB: 'RECEIVED_AT_LAB',
   DELIVERED: 'DELIVERED', 
   COMPLETED: 'COMPLETED',
   REJECTED: 'REJECTED',
@@ -68,6 +70,7 @@ export interface TatBracket {
 export interface DiagnosticLab {
   id: string;
   name: string;
+  email?: string;
   location: Location;
   geofenceRadiusMeters: number;
   adminId?: string;
@@ -76,6 +79,7 @@ export interface DiagnosticLab {
 export interface Hospital {
   id: string;
   name: string;
+  email?: string;
   address: string;
   lat: number;
   lng: number;
@@ -85,6 +89,7 @@ export interface CollectionCall {
   id: string;
   patientName: string;
   patientPhone: string;
+  patientEmail?: string;
   verificationCode: string;
   handoverCode: string;
   otpGeneratedAt: number;
@@ -98,17 +103,21 @@ export interface CollectionCall {
   acceptedAt?: number;
   visitedAt?: number;
   collectedAt?: number;
+  transitAt?: number;
+  receivedAt?: number;
   handoverAt?: number;
   rejectedAt?: number;
   status: CallStatus;
   assignedPhleboId?: string;
   labId: string;
+  hospitalId?: string;
   distanceKm?: number;
   estimatedTatMinutes: number;
   billing: BillingInfo;
   isPriority?: boolean;
   visitPhoto?: string;
   samplePhoto?: string;
+  sampleType?: string;
   handoverPhoto?: string;
   voiceNote?: string;
   rejectionReason?: string;

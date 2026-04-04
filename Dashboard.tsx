@@ -65,6 +65,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [newCall, setNewCall] = useState({
     patientName: '',
     patientPhone: '',
+    patientEmail: '',
     type: CallType.HOME_VISIT,
     address: '',
     isPriority: false,
@@ -72,7 +73,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     isWaived: false,
     selectedLabId: labs[0]?.id || '',
     generatedDestination: { lat: 19.1, lng: 72.8 },
-    selectedHospitalName: ''
+    selectedHospitalName: '',
+    selectedHospitalId: ''
   });
 
   useEffect(() => {
@@ -140,6 +142,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     setNewCall({
       ...newCall,
       selectedHospitalName: hospital.name,
+      selectedHospitalId: hospital.id,
       address: hospital.address,
       generatedDestination: { lat: hospital.lat, lng: hospital.lng }
     });
@@ -159,9 +162,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     onCreateCall({
       patientName: newCall.patientName,
       patientPhone: newCall.patientPhone,
+      patientEmail: newCall.patientEmail,
       type: newCall.type,
       isPriority: newCall.isPriority,
       labId: newCall.selectedLabId,
+      hospitalId: newCall.selectedHospitalId,
       destination: { 
         lat: newCall.generatedDestination.lat, 
         lng: newCall.generatedDestination.lng, 
@@ -183,6 +188,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     setNewCall({
       patientName: '',
       patientPhone: '',
+      patientEmail: '',
       type: CallType.HOME_VISIT,
       address: '',
       isPriority: false,
@@ -190,7 +196,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       isWaived: false,
       selectedLabId: labs[0]?.id || '',
       generatedDestination: { lat: 19.1, lng: 72.8 },
-      selectedHospitalName: ''
+      selectedHospitalName: '',
+      selectedHospitalId: ''
     });
   };
 
@@ -388,6 +395,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <input required placeholder="Patient Name" value={newCall.patientName} onChange={e => setNewCall({...newCall, patientName: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
                   <input required type="tel" placeholder="Mobile" value={newCall.patientPhone} onChange={e => setNewCall({...newCall, patientPhone: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
                 </div>
+                <input type="email" placeholder="Patient Email (Optional)" value={newCall.patientEmail} onChange={e => setNewCall({...newCall, patientEmail: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
                 
                 <div className="bg-slate-50 p-6 rounded-3xl border">
                    <div className="flex justify-between items-center mb-4">
@@ -433,7 +441,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           key={h.id} 
                           type="button" 
                           onClick={() => handleHospitalSelect(h)}
-                          className={`px-3 py-3 rounded-xl text-[9px] font-black uppercase transition-all border-2 flex flex-col items-center justify-center text-center gap-1 ${newCall.selectedHospitalName === h.name ? 'border-brand-purple bg-brand-purple/10 text-brand-purple' : 'bg-white border-slate-100 text-slate-400'}`}
+                          className={`px-3 py-3 rounded-xl text-[9px] font-black uppercase transition-all border-2 flex flex-col items-center justify-center text-center gap-1 ${newCall.selectedHospitalId === h.id ? 'border-brand-purple bg-brand-purple/10 text-brand-purple' : 'bg-white border-slate-100 text-slate-400'}`}
                         >
                           <span className="truncate w-full">{h.name}</span>
                           <span className="text-[7px] opacity-60 font-bold truncate w-full">{h.address.split(',')[0]}</span>
