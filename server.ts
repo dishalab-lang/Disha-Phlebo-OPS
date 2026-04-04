@@ -247,6 +247,37 @@ async function startServer() {
     res.json({ success: true, message: "API is reachable" });
   });
 
+  app.post("/api/test-notifications", async (req, res) => {
+    const { email, phone } = req.body;
+    const results: any = { email: null, sms: null };
+
+    if (email) {
+      try {
+        results.email = await sendEmail(
+          email,
+          "Test Notification - Disha Diagnostics",
+          "This is a test email from Disha Diagnostics Phlebotomy Suite.",
+          "<h3>Test Notification</h3><p>This is a test email from <b>Disha Diagnostics Phlebotomy Suite</b>.</p>"
+        );
+      } catch (error) {
+        results.email = { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+
+    if (phone) {
+      try {
+        results.sms = await sendSMS(
+          phone,
+          "Test SMS from Disha Diagnostics. If you receive this, your SMS integration is working correctly."
+        );
+      } catch (error) {
+        results.sms = { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+
+    res.json({ success: true, results });
+  });
+
   app.get("/api/config", async (req, res) => {
     const data = db.config.system_config;
     res.json(data ? JSON.parse(data) : null);
@@ -594,10 +625,11 @@ async function startServer() {
       if (updatedCall.patientPhone) {
         const phlebo = db.users.get(updatedCall.assignedPhleboId);
         const phleboName = phlebo ? phlebo.name : 'A phlebotomist';
+        const phleboPhone = phlebo ? phlebo.phone : 'N/A';
         const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
-          `Dear ${updatedCall.patientName}, ${phleboName} is assigned to your booking ${id}. Track here: ${trackingLink} - Disha Phlebo`
+          `Dear ${updatedCall.patientName}, ${phleboName} (${phleboPhone}) is assigned to your booking ${id}. Track here: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send assignment SMS:", err));
       }
     } else if (updates.status === 'VISITING') {
@@ -614,11 +646,12 @@ async function startServer() {
     } else if (updates.status === 'COLLECTED') {
       io.emit('notification', { message: `Samples collected for call ${id}. Handover PIN: ${updatedCall.handoverCode}`, type: 'success' });
       
-      // Send SMS with handover PIN
+      // Send SMS with handover PIN and tracking link
       if (updatedCall.patientPhone) {
+        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
-          `Dear ${updatedCall.patientName}, samples collected (${updatedCall.sampleType || 'Standard'}). Your handover PIN is ${updatedCall.handoverCode}. - Disha Phlebo`
+          `Dear ${updatedCall.patientName}, samples collected (${updatedCall.sampleType || 'Standard'}). Handover PIN: ${updatedCall.handoverCode}. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send collection SMS:", err));
       }
     } else if (updates.status === 'IN_TRANSIT') {
@@ -635,9 +668,10 @@ async function startServer() {
       io.emit('notification', { message: `Samples for call ${id} received at the lab hub.`, type: 'success' });
       
       if (updatedCall.patientPhone) {
+        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
-          `Dear ${updatedCall.patientName}, your samples have been received at the lab hub for processing. - Disha Phlebo`
+          `Dear ${updatedCall.patientName}, your samples have been received at the lab hub. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send received SMS:", err));
       }
     } else if (updates.status === 'COMPLETED') {

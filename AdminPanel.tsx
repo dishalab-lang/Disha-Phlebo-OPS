@@ -7,7 +7,7 @@ import {
   CheckCircle2, MapPin, Plus, Building2, Search, Timer, Radar, 
   Activity, X, UserPlus, Phone, ShieldAlert, Send, Home, UserCheck, Lock, Unlock,
   Truck, Target, Locate, TrendingUp, Sparkles, UserCircle, AlertCircle, Fingerprint, Shield,
-  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2, Key
+  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2, Key, RefreshCw
 } from 'lucide-react';
 
 import { GoogleGenAI } from '@google/genai';
@@ -84,6 +84,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editedConfig, setEditedConfig] = useState(config);
   const [performanceReports, setPerformanceReports] = useState<Record<string, PerformanceReport>>({});
   const [dbConfigData, setDbConfigData] = useState<string | null>(null);
+  const [testEmail, setTestEmail] = useState('');
+  const [testPhone, setTestPhone] = useState('');
+  const [testLoading, setTestLoading] = useState(false);
   const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,6 +128,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleTestNotifications = async () => {
+    if (!testEmail && !testPhone) {
+      alert("Please enter an email or phone number to test.");
+      return;
+    }
+    setTestLoading(true);
+    try {
+      const response = await fetch('/api/test-notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail, phone: testPhone })
+      });
+      const data = await response.json();
+      if (data.success) {
+        let msg = "Test results:\n";
+        if (testEmail) msg += `Email: ${data.results.email?.success ? 'Sent' : 'Failed (' + (data.results.email?.error || 'Unknown error') + ')'}\n`;
+        if (testPhone) msg += `SMS: ${data.results.sms?.success ? 'Sent' : 'Failed (' + (data.results.sms?.error || 'Unknown error') + ')'}\n`;
+        alert(msg);
+      } else {
+        alert("Failed to trigger test notifications.");
+      }
+    } catch (error) {
+      console.error("Test notification error:", error);
+      alert("An error occurred while testing notifications.");
+    } finally {
+      setTestLoading(false);
+    }
   };
 
   const handleFetchConfig = async () => {
@@ -867,6 +899,30 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </pre>
                     </div>
                   )}
+                </div>
+
+                <div className="mt-12 pt-12 border-t border-slate-100">
+                   <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Send className="text-brand-purple" /> Test Notifications</h3>
+                   <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Test Email Address</label>
+                            <input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="email@example.com" className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none" />
+                         </div>
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Test Phone Number</label>
+                            <input type="tel" value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="+919876543210" className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none" />
+                         </div>
+                      </div>
+                      <button 
+                        onClick={handleTestNotifications} 
+                        disabled={testLoading}
+                        className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                      >
+                        {testLoading ? <RefreshCw className="animate-spin" /> : <Send size={20} />} 
+                        {testLoading ? 'Processing...' : 'Send Test Notifications'}
+                      </button>
+                   </div>
                 </div>
               </div>
 
