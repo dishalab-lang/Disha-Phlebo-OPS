@@ -319,7 +319,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   };
 
   const upiId = "dishalab@okicici";
-  const upiUrl = activeCall ? `upi://pay?pa=${upiId}&pn=Disha%20Diagnostics&am=${activeCall.billing.totalAmount}&cu=INR` : "";
+  const upiUrl = activeCall && activeCall.billing ? `upi://pay?pa=${upiId}&pn=Disha%20Diagnostics&am=${activeCall.billing.totalAmount}&cu=INR` : "";
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`;
 
   const ArtifactCard = ({ type, label, data, icon: Icon }: { type: 'VISIT' | 'SAMPLE' | 'HANDOVER', label: string, data?: string, icon: any }) => {
@@ -497,26 +497,26 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  )}
 
                  <div className="space-y-4">
-                    {activeCall.status === CallStatus.VISITING && activeCall.billing.paymentStatus === 'PENDING' && (
+                    {activeCall.status === CallStatus.VISITING && activeCall.billing?.paymentStatus === 'PENDING' && (
                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
                           <div className="flex justify-between items-center">
                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Collection</span>
-                             <span className="text-sm font-black text-slate-900">₹{activeCall.billing.totalAmount.toLocaleString()}</span>
+                             <span className="text-sm font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                              <button onClick={() => setShowUpiModal(true)} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-purple transition-all">
                                 <QrCode size={24} className="text-brand-purple" />
                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">UPI QR</span>
                              </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
                                 <Wallet size={24} className="text-brand-green" />
                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Cash</span>
                              </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
                                 <CreditCard size={24} className="text-blue-500" />
                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Card</span>
                              </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...activeCall.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
+                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
                                 <Link size={24} className="text-orange-500" />
                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Link</span>
                              </button>
@@ -546,8 +546,8 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                           </select>
                           <button 
                              onClick={handleVerifyAndStart} 
-                             disabled={activeCall.billing.paymentStatus === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || !activeCall.sampleType || verificationInput.length < 4} 
-                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${activeCall.billing.paymentStatus === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && activeCall.sampleType && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
+                             disabled={(activeCall.billing?.paymentStatus || 'PENDING') === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || !activeCall.sampleType || verificationInput.length < 4} 
+                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${(activeCall.billing?.paymentStatus || 'PENDING') === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && activeCall.sampleType && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
                           >
                              <Fingerprint size={24} /> Verify & Start Collection
                           </button>
@@ -620,7 +620,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                  <div className="flex justify-between items-center px-2">
                     <div className="flex flex-col">
                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Quote Total</span>
-                       <span className="text-lg font-black text-slate-900">₹{activeCall.billing.totalAmount.toLocaleString()}</span>
+                       <span className="text-lg font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
                     </div>
                     <div className="flex flex-col items-end">
                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TAT Countdown</span>
@@ -651,7 +651,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                          <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${call.isPriority ? 'bg-orange-50 text-orange-600' : 'bg-slate-100 text-slate-500'}`}>
                            {call.isPriority ? 'URGENT' : 'STANDARD'}
                          </span>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{call.billing.tests.length} Services</span>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{call.billing?.tests?.length || 0} Services</span>
                          {distance !== null && (
                            <span className="text-[9px] font-black text-brand-purple uppercase tracking-widest ml-auto sm:ml-0">
                              {distance.toFixed(1)} km away
@@ -885,7 +885,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
           <div className="bg-white w-full max-sm rounded-[4rem] p-12 flex flex-col items-center gap-8 shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
              <h3 className="font-black text-xl uppercase tracking-widest text-brand-purple">UPI Authorization</h3>
              <img src={qrUrl} className="w-full rounded-[2.5rem] border-4 border-slate-50 shadow-inner" alt="UPI QR" />
-             <button onClick={() => { onUpdateStatus(activeCall!.id, activeCall!.status, currentUser.id, { billing: {...activeCall!.billing, paymentStatus: 'PAID', paymentMode: PaymentMode.UPI}}); setShowUpiModal(false); }} className="w-full bg-brand-green text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl">Complete Payment</button>
+             <button onClick={() => { onUpdateStatus(activeCall!.id, activeCall!.status, currentUser.id, { billing: {...(activeCall!.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.UPI}}); setShowUpiModal(false); }} className="w-full bg-brand-green text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl">Complete Payment</button>
           </div>
         </div>
       )}

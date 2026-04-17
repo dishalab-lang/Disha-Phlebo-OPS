@@ -24,16 +24,8 @@ const db = {
 // Initialize with mock data if empty
 if (db.labs.size === 0) {
   MOCK_LABS.forEach(l => {
-    const data = {
-      id: l.id,
-      name: l.name,
-      lat: l.location?.lat || 0,
-      lng: l.location?.lng || 0,
-      geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
-      adminId: null
-    };
-    db.labs.set(l.id, data);
-    dbHelper.setLab(l.id, data);
+    db.labs.set(l.id, l);
+    dbHelper.setLab(l.id, l);
   });
 }
 
@@ -291,14 +283,7 @@ async function startServer() {
   });
 
   app.get("/api/labs", async (req, res) => {
-    const labs = Array.from(db.labs.values()).map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      location: { lat: r.lat, lng: r.lng },
-      geofenceRadiusMeters: r.geofenceRadiusMeters,
-      adminId: r.adminId
-    }));
-    res.json(labs);
+    res.json(Array.from(db.labs.values()));
   });
 
   app.post("/api/labs", async (req, res) => {
@@ -306,16 +291,12 @@ async function startServer() {
     db.labs.clear();
     dbHelper.clearLabs();
     labs.forEach((l: any) => {
-      const data = {
-        id: l.id,
-        name: l.name,
-        lat: l.location?.lat || 0,
-        lng: l.location?.lng || 0,
-        geofenceRadiusMeters: l.geofenceRadiusMeters || 500,
-        adminId: l.adminId || null
-      };
-      db.labs.set(l.id, data);
-      dbHelper.setLab(l.id, data);
+      if (!l.location) {
+        l.location = { lat: l.lat || 0, lng: l.lng || 0 };
+        delete l.lat; delete l.lng;
+      }
+      db.labs.set(l.id, l);
+      dbHelper.setLab(l.id, l);
     });
     res.json({ success: true });
   });
@@ -329,15 +310,8 @@ async function startServer() {
     db.hospitals.clear();
     dbHelper.clearHospitals();
     hospitals.forEach((h: any) => {
-      const data = {
-        id: h.id,
-        name: h.name,
-        address: h.address || null,
-        lat: h.lat || 0,
-        lng: h.lng || 0
-      };
-      db.hospitals.set(h.id, data);
-      dbHelper.setHospital(h.id, data);
+      db.hospitals.set(h.id, h);
+      dbHelper.setHospital(h.id, h);
     });
     res.json({ success: true });
   });
@@ -378,7 +352,113 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // In-memory OTP store (expires in 5 mins)
+  const loginOtps = new Map<string, { otp: string, expires: number }>();
+
   // Auth API
+  app.post("/api/public/login-otp/request", async (req, res) => {
+    const { username } = req.body;
+    const user = Array.from(db.users.values()).find((u: any) => 
+      u.username === username || u.email === username || u.phone === username
+    ) as any;
+
+    if (!user) {
+      return res.json({ success: false, message: 'User not found' });
+    }
+    
+    if (!user.phone && !user.email) {
+      return res.json({ success: false, message: 'No phone number or email associated with this account for verification.' });
+    }
+
+    if (user.status === 'LOCKED') {
+      return res.status(403).json({ success: false, message: "Access Restricted: Node Locked" });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    loginOtps.set(user.id, { otp, expires: Date.now() + 5 * 60 * 1000 });
+
+    try {
+      let methods = [];
+      if (user.phone) {
+        await sendSMS(user.phone, `Your Disha Phlebo Login OTP is: ${otp}. Valid for 5 minutes.`).catch(e => console.error("SMS error:", e));
+        methods.push('SMS');
+      }
+      if (user.email) {
+        await sendEmail(user.email, "Login OTP - Disha Phlebo", `Your Login OTP is: ${otp}\nValid for 5 minutes.`).catch(e => console.error("Email error:", e));
+        methods.push('Email');
+      }
+      
+      if (methods.length === 0) throw new Error('All sending methods failed.');
+
+      res.json({ success: true, message: `OTP sent successfully via ${methods.join(' and ')}.` });
+    } catch (error) {
+      console.error('Failed to send OTP:', error);
+      res.json({ success: false, message: 'Failed to send OTP.' });
+    }
+  });
+
+  app.post("/api/public/login-otp/verify", async (req, res) => {
+    const { username, otp } = req.body;
+    const user = Array.from(db.users.values()).find((u: any) => 
+      u.username === username || u.email === username || u.phone === username
+    ) as any;
+
+    if (!user) {
+      return res.json({ success: false, message: 'User not found' });
+    }
+
+    const storedOtp = loginOtps.get(user.id);
+    if (!storedOtp) {
+      return res.json({ success: false, message: 'OTP not requested or expired' });
+    }
+
+    if (Date.now() > storedOtp.expires) {
+      loginOtps.delete(user.id);
+      return res.json({ success: false, message: 'OTP expired' });
+    }
+
+    if (storedOtp.otp !== otp) {
+      return res.json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // Success
+    loginOtps.delete(user.id);
+    res.json({ success: true, user });
+  });
+
+  app.post("/api/public/forgot-password", async (req, res) => {
+    const { username } = req.body;
+    const user = Array.from(db.users.values()).find((u: any) => 
+      u.username === username || u.email === username
+    ) as any;
+
+    if (!user) {
+      return res.json({ success: false, message: 'User not found' });
+    }
+
+    // Generate temp password
+    const tempPassword = Math.random().toString(36).slice(-6).toUpperCase();
+    user.password = tempPassword;
+    db.users.set(user.id, user);
+    dbHelper.setUser(user.id, user);
+
+    let msg = [];
+    if (user.email) {
+      await sendEmail(user.email, "Password Reset", `Your new temporary password is: ${tempPassword}\nPlease login and change it immediately.`).catch(console.error);
+      msg.push('email');
+    }
+    if (user.phone) {
+      await sendSMS(user.phone, `Your Disha Phlebo password reset code is: ${tempPassword}`).catch(console.error);
+      msg.push('SMS');
+    }
+
+    if (msg.length === 0) {
+      return res.json({ success: false, message: 'Could not send recovery message - no contact details found' });
+    }
+
+    res.json({ success: true, message: `Password reset sent via ${msg.join(' and ')}` });
+  });
+
   app.post("/api/login", async (req, res) => {
     const { username, password } = req.body;
     const user = Array.from(db.users.values()).find((u: any) => 
@@ -422,52 +502,19 @@ async function startServer() {
 
   app.get("/api/calls", async (req, res) => {
     const calls = Array.from(db.calls.values())
-      .sort((a: any, b: any) => b.placedAt - a.placedAt)
-      .map((c: any) => {
-        let parsedBilling = null;
-        try {
-          parsedBilling = c.billingJson ? JSON.parse(c.billingJson) : null;
-        } catch (e) {
-          console.error("Error parsing billingJson for call", c.id, e);
-        }
-        return {
-          ...c,
-          destination: { lat: c.destLat, lng: c.destLng, address: c.destAddress },
-          arrivedLocation: c.arrivedLat ? { lat: c.arrivedLat, lng: c.arrivedLng, address: c.arrivedAddress } : undefined,
-          billing: parsedBilling,
-          isPriority: !!c.isPriority,
-          isOtpLocked: !!c.isOtpLocked,
-          handoverCode: c.handoverCode || ''
-        };
-      });
+      .sort((a: any, b: any) => b.placedAt - a.placedAt);
     res.json(calls);
   });
 
   app.post("/api/calls", async (req, res) => {
     const call = req.body;
-    const callData = {
-      id: call.id,
-      patientName: call.patientName,
-      patientPhone: call.patientPhone,
-      patientEmail: call.patientEmail,
-      verificationCode: call.verificationCode,
-      handoverCode: call.handoverCode,
-      otpGeneratedAt: call.otpGeneratedAt,
-      otpExpiresAt: call.otpExpiresAt,
-      type: call.type,
-      destLat: call.destination.lat,
-      destLng: call.destination.lng,
-      destAddress: call.destination.address,
-      placedAt: call.placedAt,
-      status: call.status,
-      labId: call.labId,
-      hospitalId: call.hospitalId,
-      estimatedTatMinutes: call.estimatedTatMinutes,
-      isPriority: call.isPriority ? true : false,
-      billingJson: JSON.stringify(call.billing)
-    };
-    db.calls.set(call.id, callData);
-    dbHelper.setCall(call.id, callData);
+    
+    // Ensure vital PINs exist natively even if the client misses them
+    if (!call.verificationCode) call.verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+    if (!call.handoverCode) call.handoverCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+    db.calls.set(call.id, call);
+    dbHelper.setCall(call.id, call);
     io.emit('call_created', call);
 
     // Send notification email to patient
@@ -575,16 +622,6 @@ async function startServer() {
       return res.status(404).json({ success: false, message: "Call not found" });
     }
 
-    if (updates.arrivedLocation) {
-      updates.arrivedLat = updates.arrivedLocation.lat;
-      updates.arrivedLng = updates.arrivedLocation.lng;
-      updates.arrivedAddress = updates.arrivedLocation.address;
-      delete updates.arrivedLocation;
-    }
-    if (updates.billing) {
-      updates.billingJson = JSON.stringify(updates.billing);
-      delete updates.billing;
-    }
     if (updates.isOtpLocked !== undefined) {
       updates.isOtpLocked = updates.isOtpLocked ? true : false;
     }
@@ -592,87 +629,142 @@ async function startServer() {
       updates.isPriority = updates.isPriority ? true : false;
     }
 
+    // Merge nested billing
+    if (updates.billing && call.billing) {
+      updates.billing = { ...call.billing, ...updates.billing };
+    }
+
     const updatedCall = { ...call, ...updates };
     db.calls.set(id, updatedCall);
     dbHelper.setCall(id, updatedCall);
     
-    const emitUpdates = { ...updates };
-    if (emitUpdates.billingJson) {
-      emitUpdates.billing = JSON.parse(emitUpdates.billingJson);
-      delete emitUpdates.billingJson;
-    }
-    if (emitUpdates.arrivedLat !== undefined) {
-      emitUpdates.arrivedLocation = {
-        lat: emitUpdates.arrivedLat,
-        lng: emitUpdates.arrivedLng,
-        address: emitUpdates.arrivedAddress
-      };
-      delete emitUpdates.arrivedLat;
-      delete emitUpdates.arrivedLng;
-      delete emitUpdates.arrivedAddress;
-    }
-    
-    io.emit('call_updated', { id, ...emitUpdates });
+    io.emit('call_updated', { id, ...updates });
     
     if (updates.status) {
       syncToCentralLIS(id, updates.status, updates);
     }
 
     if (updates.status === 'ACCEPTED') {
-      io.emit('notification', { message: `SMS Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
+      io.emit('notification', { message: `Notification Sent: Phlebotomist assigned to call ${id}`, type: 'success' });
       
+      const phlebo = db.users.get(updatedCall.assignedPhleboId);
+      const phleboName = phlebo ? phlebo.name : 'A phlebotomist';
+      const phleboPhone = phlebo ? phlebo.phone : 'N/A';
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
+
       // Send SMS to patient about phlebotomist assignment with tracking link
       if (updatedCall.patientPhone) {
-        const phlebo = db.users.get(updatedCall.assignedPhleboId);
-        const phleboName = phlebo ? phlebo.name : 'A phlebotomist';
-        const phleboPhone = phlebo ? phlebo.phone : 'N/A';
-        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
           `Dear ${updatedCall.patientName}, ${phleboName} (${phleboPhone}) is assigned to your booking ${id}. Track here: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send assignment SMS:", err));
       }
+
+      // Send Email to patient
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Phlebotomist Assigned - Booking ${id}`,
+          `Dear ${updatedCall.patientName}, ${phleboName} (${phleboPhone}) is assigned to your booking. Track here: ${trackingLink}`,
+          `<h3>Phlebotomist Assigned</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p><b>${phleboName}</b> (Phone: ${phleboPhone}) has been assigned to your booking.</p>
+           <p><a href="${trackingLink}">Click here to track your phlebotomist in real-time</a></p>`
+        ).catch(err => console.error("Failed to send assignment EN:" + err));
+      }
     } else if (updates.status === 'VISITING') {
       io.emit('notification', { message: `Phlebotomist arrived for call ${id}. Patient PIN: ${updatedCall.verificationCode}`, type: 'success' });
       
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
       // Send SMS with verification PIN and tracking link
       if (updatedCall.patientPhone) {
-        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
           `Dear ${updatedCall.patientName}, the phlebotomist has arrived. PIN: ${updatedCall.verificationCode}. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send arrival SMS:", err));
       }
+
+      // Send Email with verification PIN
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Phlebotomist Arrived - Booking ${id}`,
+          `Dear ${updatedCall.patientName}, the phlebotomist has arrived. Your verification PIN is: ${updatedCall.verificationCode}. Track: ${trackingLink}`,
+          `<h3>Phlebotomist Arrived</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p>Your phlebotomist has arrived.</p>
+           <p>Your Verification PIN is: <b style="font-size: 24px; letter-spacing: 2px;">${updatedCall.verificationCode}</b></p>
+           <p><a href="${trackingLink}">Track visit status here</a></p>`
+        ).catch(err => console.error("Failed to send arrival EN:" + err));
+      }
     } else if (updates.status === 'COLLECTED') {
       io.emit('notification', { message: `Samples collected for call ${id}. Handover PIN: ${updatedCall.handoverCode}`, type: 'success' });
       
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
       // Send SMS with handover PIN and tracking link
       if (updatedCall.patientPhone) {
-        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
           `Dear ${updatedCall.patientName}, samples collected (${updatedCall.sampleType || 'Standard'}). Handover PIN: ${updatedCall.handoverCode}. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send collection SMS:", err));
       }
+
+      // Send Email with handover PIN
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Samples Collected - Booking ${id}`,
+          `Dear ${updatedCall.patientName}, your samples have been collected. Handover PIN: ${updatedCall.handoverCode}. Track: ${trackingLink}`,
+          `<h3>Samples Collected</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p>Your samples have been successfully collected.</p>
+           <p>Your Lab Handover PIN is: <b style="font-size: 24px; letter-spacing: 2px;">${updatedCall.handoverCode}</b></p>
+           <p><a href="${trackingLink}">Track lab transit status here</a></p>`
+        ).catch(err => console.error("Failed to send collection EN:" + err));
+      }
     } else if (updates.status === 'IN_TRANSIT') {
       io.emit('notification', { message: `Samples for call ${id} are now in transit to the lab.`, type: 'info' });
       
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
       if (updatedCall.patientPhone) {
-        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
           `Dear ${updatedCall.patientName}, your samples are in transit to the lab. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send transit SMS:", err));
       }
+
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Samples in Transit - Booking ${id}`,
+          `Dear ${updatedCall.patientName}, your samples are in transit to the lab. Track: ${trackingLink}`,
+          `<h3>Samples in Transit</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p>Your samples are securely in transit to the diagnostic hub.</p>
+           <p><a href="${trackingLink}">Track lab status here</a></p>`
+        ).catch(err => console.error("Failed to send transit EN:" + err));
+      }
     } else if (updates.status === 'RECEIVED_AT_LAB') {
       io.emit('notification', { message: `Samples for call ${id} received at the lab hub.`, type: 'success' });
       
+      const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
       if (updatedCall.patientPhone) {
-        const trackingLink = `https://ais-dev-xsqmrnjmjw76oxcwczkpoc-21178001441.asia-east1.run.app/track/${id}`;
         sendSMS(
           updatedCall.patientPhone,
           `Dear ${updatedCall.patientName}, your samples have been received at the lab hub. Track: ${trackingLink} - Disha Phlebo`
         ).catch(err => console.error("Failed to send received SMS:", err));
+      }
+
+      if (updatedCall.patientEmail) {
+        sendEmail(
+          updatedCall.patientEmail,
+          `Samples Received at Hub - Booking ${id}`,
+          `Dear ${updatedCall.patientName}, your samples have been safely received at the lab hub. Track: ${trackingLink}`,
+          `<h3>Samples Received at Lab</h3>
+           <p>Dear ${updatedCall.patientName},</p>
+           <p>Your samples have been safely received at the diagnostic hub and are being processed.</p>
+           <p><a href="${trackingLink}">Track lab processing here</a></p>`
+        ).catch(err => console.error("Failed to send received EN:" + err));
       }
     } else if (updates.status === 'COMPLETED') {
       io.emit('notification', { message: `Email Sent: Invoice and report ready for call ${id}`, type: 'success' });
@@ -724,7 +816,6 @@ async function startServer() {
 
     if (updates.currentLocation) {
         updates.lastActive = Date.now();
-        delete updates.currentLocation;
     }
     if (updates.isAvailable !== undefined) {
       updates.isAvailable = updates.isAvailable ? true : false;

@@ -466,6 +466,115 @@ const App: React.FC = () => {
 
 
 
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordInput, setForgotPasswordInput] = useState('');
+  const [forgotPasswordMsg, setForgotPasswordMsg] = useState<{ text: string, type: 'error' | 'success' | '' }>({ text: '', type: '' });
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+
+  const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password');
+  const [otpStep, setOtpStep] = useState<1 | 2>(1);
+  const [otpError, setOtpError] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+
+  const handleRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtpError('');
+    if (!loginForm.userId) {
+      setOtpError('Please enter your Phone or Username');
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      const res = await fetch('/api/public/login-otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginForm.userId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOtpStep(2);
+      } else {
+        setOtpError(data.message || 'Verification failed');
+      }
+    } catch (e) {
+      setOtpError('Network error');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtpLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtpError('');
+    if (!otpInput) {
+      setOtpError('Please enter the OTP');
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      const res = await fetch('/api/public/login-otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginForm.userId, otp: otpInput })
+      });
+      const data = await res.json();
+      if (data.success) {
+        processSuccessfulLogin(data.user);
+      } else {
+        setOtpError(data.message || 'Invalid OTP');
+      }
+    } catch (e) {
+      setOtpError('Network error');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const processSuccessfulLogin = (user: any) => {
+    if (user.status === 'LOCKED') {
+      setLoginError('Access Restricted: Node Locked');
+      setOtpError('Access Restricted: Node Locked');
+      return;
+    }
+    setIsAuthenticated(true);
+    setCurrentUser(user);
+    try {
+      sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
+      sessionStorage.setItem('MAUI_USER_ID', user.id);
+    } catch (e) {}
+    if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
+    else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
+    else setActiveRoute('FIELD');
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotPasswordMsg({ text: '', type: '' });
+    if (!forgotPasswordInput) {
+      setForgotPasswordMsg({ text: 'Please enter your username or email', type: 'error' });
+      return;
+    }
+    setForgotPasswordLoading(true);
+    try {
+      const res = await fetch('/api/public/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: forgotPasswordInput })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setForgotPasswordMsg({ text: data.message, type: 'success' });
+      } else {
+        setForgotPasswordMsg({ text: data.message || 'Recovery failed', type: 'error' });
+      }
+    } catch (e) {
+      setForgotPasswordMsg({ text: 'Network error', type: 'error' });
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -477,20 +586,7 @@ const App: React.FC = () => {
       });
       const data = await res.json();
       if (data.success) {
-        const user = data.user;
-        if (user.status === 'LOCKED') {
-          setLoginError('Access Restricted: Node Locked');
-          return;
-        }
-        setIsAuthenticated(true);
-        setCurrentUser(user);
-        try {
-          sessionStorage.setItem('MAUI_SHELL_AUTH', 'true');
-          sessionStorage.setItem('MAUI_USER_ID', user.id);
-        } catch (e) {}
-        if (['ADMIN', 'DEVELOPER', 'SYSTEM_ADMIN'].includes(user.role)) setActiveRoute('ADMIN');
-        else if (['RECEPTION', 'DISPATCHER'].includes(user.role)) setActiveRoute('DISPATCH');
-        else setActiveRoute('FIELD');
+        processSuccessfulLogin(data.user);
       } else {
         setLoginError('Credential Failure: Identity Unknown');
       }
@@ -605,14 +701,83 @@ const App: React.FC = () => {
             <h1 className="text-3xl font-black uppercase tracking-tight">Disha Field Ops</h1>
             <p className="text-white/40 text-[10px] font-black uppercase mt-2 tracking-[0.4em]">Node Authentication</p>
           </div>
-          <form onSubmit={handleLogin} className="p-12 space-y-8">
-            <div className="space-y-4">
-               <input type="text" placeholder="Username" value={loginForm.userId} onChange={(e) => setLoginForm({ ...loginForm, userId: e.target.value })} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold" required />
-               <input type="password" placeholder="Password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold" required />
+          {showForgotPassword ? (
+            <form onSubmit={handleForgotPassword} className="p-12 space-y-8">
+              <div className="space-y-4">
+                 <p className="text-sm font-bold text-slate-700 text-center">Enter your username or email to receive a temporary recovery password.</p>
+                 <input type="text" placeholder="Username or Email" value={forgotPasswordInput} onChange={(e) => setForgotPasswordInput(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold" required />
+              </div>
+              {forgotPasswordMsg.text && (
+                <div className={`p-4 rounded-2xl text-[10px] font-black uppercase text-center ${forgotPasswordMsg.type === 'error' ? 'bg-red-50 text-red-500 animate-shake' : 'bg-brand-green/10 text-brand-green'}`}>
+                  {forgotPasswordMsg.text}
+                </div>
+              )}
+              <div className="space-y-4">
+                <button type="submit" disabled={forgotPasswordLoading} className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-50">
+                  {forgotPasswordLoading ? 'Sending...' : 'Send Recovery Code'}
+                </button>
+                <button type="button" onClick={() => setShowForgotPassword(false)} className="w-full text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600">Back to Login</button>
+              </div>
+            </form>
+          ) : (
+            <div className="p-12 space-y-8">
+              {/* Login Method Toggle */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl">
+                <button 
+                  onClick={() => { setLoginMethod('password'); setOtpError(''); setLoginError(''); }} 
+                  className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${loginMethod === 'password' ? 'bg-white shadow-sm text-brand-purple' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Password
+                </button>
+                <button 
+                  onClick={() => { setLoginMethod('otp'); setOtpError(''); setLoginError(''); setOtpStep(1); }} 
+                  className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${loginMethod === 'otp' ? 'bg-white shadow-sm text-brand-purple' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  OTP
+                </button>
+              </div>
+
+              {loginMethod === 'password' ? (
+                <form onSubmit={handleLogin} className="space-y-8">
+                  <div className="space-y-4">
+                     <input type="text" placeholder="Username" value={loginForm.userId} onChange={(e) => setLoginForm({ ...loginForm, userId: e.target.value })} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:outline-brand-purple" required />
+                     <input type="password" placeholder="Password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:outline-brand-purple" required />
+                  </div>
+                  {loginError && <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center animate-shake">{loginError}</div>}
+                  <div className="space-y-4">
+                    <button type="submit" className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.4em] shadow-2xl active:scale-95 transition-all">Authenticate</button>
+                    <button type="button" onClick={() => { setShowForgotPassword(true); setForgotPasswordMsg({text:'',type:''}); }} className="w-full text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600">Forgot Password?</button>
+                  </div>
+                </form>
+              ) : (
+                otpStep === 1 ? (
+                  <form onSubmit={handleRequestOtp} className="space-y-8">
+                     <div className="space-y-4">
+                       <input type="text" placeholder="Phone Number or Username" value={loginForm.userId} onChange={(e) => setLoginForm({ ...loginForm, userId: e.target.value })} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:outline-brand-purple" required />
+                     </div>
+                     {otpError && <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center animate-shake">{otpError}</div>}
+                     <button type="submit" disabled={otpLoading} className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-50">
+                       {otpLoading ? 'Sending...' : 'Send OTP via SMS'}
+                     </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleVerifyOtpLogin} className="space-y-8">
+                     <div className="space-y-4">
+                       <p className="text-center text-xs font-bold text-slate-500">OTP Code sent to your mobile.</p>
+                       <input type="text" placeholder="Enter 6-digit OTP" value={otpInput} onChange={(e) => setOtpInput(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-center tracking-[1em] text-xl focus:outline-brand-purple" maxLength={6} required />
+                     </div>
+                     {otpError && <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center animate-shake">{otpError}</div>}
+                     <div className="space-y-4">
+                       <button type="submit" disabled={otpLoading} className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.4em] shadow-2xl active:scale-95 transition-all disabled:opacity-50">
+                         {otpLoading ? 'Verifying...' : 'Verify & Login'}
+                       </button>
+                       <button type="button" onClick={() => setOtpStep(1)} className="w-full text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600">Back</button>
+                     </div>
+                  </form>
+                )
+              )}
             </div>
-            {loginError && <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center animate-shake">{loginError}</div>}
-            <button type="submit" className="w-full bg-brand-purple text-white py-6 rounded-3xl font-black uppercase text-xs tracking-[0.4em] shadow-2xl active:scale-95 transition-all">Authenticate</button>
-          </form>
+          )}
         </div>
       </div>
     );
