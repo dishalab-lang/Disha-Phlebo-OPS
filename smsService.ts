@@ -45,7 +45,7 @@ export async function sendSMS(to: string, body: string) {
     console.log('SMS sent via Exotel: %s', data.RestResponse?.SmsMessage?.Sid);
     return data;
   } catch (error) {
-    console.error('Error sending SMS via Exotel:', error);
-    throw error;
+    // console.error('Error sending SMS via Exotel:', error); // Muted to prevent spam
+    return { error: error instanceof Error ? error.message : String(error) };
   }
 }

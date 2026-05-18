@@ -19,7 +19,7 @@ interface DashboardProps {
   phleboList: Phlebotomist[];
   tests: DiagnosticTest[];
   onCreateCall: (call: Partial<CollectionCall>) => void;
-  onUpdateStatus?: (id: string, status: CallStatus) => void;
+  onUpdateStatus?: (id: string, status: CallStatus, phleboId?: string, updates?: Partial<CollectionCall>) => void;
   onResendOtp: (id: string, isHandover?: boolean) => void;
   onUpdateAppointmentStatus: (id: string, status: 'COMPLETED' | 'PENDING' | 'SCHEDULED' | 'CANCELLED') => void;
 }
@@ -126,7 +126,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }, [testSearch]);
 
-  const subTotal = useMemo(() => selectedTests.reduce((acc, t) => acc + t.price, 0), [selectedTests]);
+  const subTotal = useMemo(() => selectedTests.reduce((acc, t) => acc + (Number(t.price) || 0), 0), [selectedTests]);
   const currentVisitCharge = newCall.isWaived ? 0 : newCall.manualVisitCharge;
   const totalAmount = subTotal + (newCall.type === CallType.HOME_VISIT ? currentVisitCharge : 0);
 
@@ -315,6 +315,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                               Exp in {Math.max(0, Math.floor((call.otpExpiresAt - currentTime) / 1000))}s
                             </span>
                           )}
+                          {call.status === CallStatus.VISITING && (
+                            <button 
+                              onClick={() => onResendOtp(call.id, false)}
+                              className="text-[7px] font-black text-brand-purple uppercase tracking-widest hover:underline mt-1"
+                            >
+                              Regenerate
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-6 text-center">
@@ -334,46 +342,64 @@ const Dashboard: React.FC<DashboardProps> = ({
                       </td>
                       <td className="px-6 py-6 text-center">
                         <div className="flex flex-col items-center gap-2">
-                          <div className="flex items-center justify-center gap-2">
-                            <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
-                               call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 
-                               call.status === CallStatus.IN_PROGRESS ? 'bg-brand-purple text-white border-brand-purple' :
-                               'bg-brand-purple/5 text-brand-purple'
-                            }`}>
-                              {call.status}
-                            </span>
-                            {call.voiceNote && (
-                              <button 
-                                onClick={() => new Audio(call.voiceNote).play()}
-                                className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
-                                title="Play Voice Note"
-                              >
-                                <Volume2 size={14} />
-                              </button>
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <div className="flex items-center justify-center gap-2">
+                              <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                                 call.status === CallStatus.PENDING ? 'bg-slate-50 text-slate-400' : 
+                                 call.status === CallStatus.IN_PROGRESS ? 'bg-brand-purple text-white border-brand-purple' :
+                                 'bg-brand-purple/5 text-brand-purple'
+                              }`}>
+                                {call.status}
+                              </span>
+                              {call.voiceNote && (
+                                <button 
+                                  onClick={() => new Audio(call.voiceNote).play()}
+                                  className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg hover:bg-brand-purple/20 transition-all"
+                                  title="Play Voice Note"
+                                >
+                                  <Volume2 size={14} />
+                                </button>
+                              )}
+                              {call.status === CallStatus.COMPLETED && (
+                                <button 
+                                  onClick={() => handleDownloadInvoice(call)}
+                                  className="p-2 bg-brand-green/10 text-brand-green rounded-lg hover:bg-brand-green/20 transition-all"
+                                  title="Download Invoice"
+                                >
+                                  <FileText size={14} />
+                                </button>
+                              )}
+                            </div>
+                            
+                            {['ADMIN', 'RECEPTION', 'SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role) && call.status !== CallStatus.COMPLETED && call.status !== CallStatus.PENDING && (
+                               <button 
+                                 onClick={() => {
+                                   if (window.confirm("Are you sure you want to redeploy this call? This will reset its status to PENDING and unassign it.")) {
+                                       if (onUpdateStatus) {
+                                           onUpdateStatus(call.id, CallStatus.PENDING, '', { assignedPhleboId: null, otpRetryCount: 0, isOtpLocked: false } as any);
+                                       }
+                                   }
+                                 }}
+                                 className="text-[8px] font-black text-brand-purple uppercase hover:underline mt-1"
+                               >
+                                 Redeploy
+                               </button>
                             )}
-                            {call.status === CallStatus.COMPLETED && (
-                              <button 
-                                onClick={() => handleDownloadInvoice(call)}
-                                className="p-2 bg-brand-green/10 text-brand-green rounded-lg hover:bg-brand-green/20 transition-all"
-                                title="Download Invoice"
-                              >
-                                <FileText size={14} />
-                              </button>
+
+                            {call.status !== CallStatus.COMPLETED && (
+                              <div className="w-24 bg-slate-100 h-1 rounded-full overflow-hidden mt-1">
+                                <div 
+                                  className={`h-full transition-all duration-500 ${
+                                    call.status === CallStatus.PENDING ? 'w-[10%] bg-slate-300' :
+                                    call.status === CallStatus.ACCEPTED ? 'w-[30%] bg-blue-400' :
+                                    call.status === CallStatus.VISITING ? 'w-[50%] bg-orange-400' :
+                                    call.status === CallStatus.IN_PROGRESS ? 'w-[75%] bg-brand-purple' :
+                                    'w-[90%] bg-brand-green'
+                                  }`}
+                                />
+                              </div>
                             )}
                           </div>
-                          {call.status !== CallStatus.COMPLETED && (
-                            <div className="w-24 bg-slate-100 h-1 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full transition-all duration-500 ${
-                                  call.status === CallStatus.PENDING ? 'w-[10%] bg-slate-300' :
-                                  call.status === CallStatus.ACCEPTED ? 'w-[30%] bg-blue-400' :
-                                  call.status === CallStatus.VISITING ? 'w-[50%] bg-orange-400' :
-                                  call.status === CallStatus.IN_PROGRESS ? 'w-[75%] bg-brand-purple' :
-                                  'w-[90%] bg-brand-green'
-                                }`}
-                              />
-                            </div>
-                          )}
                         </div>
                       </td>
                     </tr>

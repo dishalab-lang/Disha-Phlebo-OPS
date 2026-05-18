@@ -17,6 +17,7 @@ sqliteDb.exec(`
   CREATE TABLE IF NOT EXISTS labs (id TEXT PRIMARY KEY, data TEXT);
   CREATE TABLE IF NOT EXISTS hospitals (id TEXT PRIMARY KEY, data TEXT);
   CREATE TABLE IF NOT EXISTS logs (id TEXT PRIMARY KEY, data TEXT);
+  CREATE TABLE IF NOT EXISTS tests (id TEXT PRIMARY KEY, data TEXT);
 `);
 
 export const dbHelper = {
@@ -26,6 +27,20 @@ export const dbHelper = {
   },
   setUser: (id: string, data: any) => {
     sqliteDb.prepare('INSERT OR REPLACE INTO users (id, data) VALUES (?, ?)').run(id, JSON.stringify(data));
+  },
+  deleteUser: (id: string) => {
+    sqliteDb.prepare('DELETE FROM users WHERE id = ?').run(id);
+  },
+  getTests: () => {
+    const rows = sqliteDb.prepare('SELECT * FROM tests').all() as any[];
+    return rows.map(r => JSON.parse(r.data));
+  },
+  setTests: (tests: any[]) => {
+    sqliteDb.prepare('DELETE FROM tests').run();
+    const insert = sqliteDb.prepare('INSERT INTO tests (id, data) VALUES (?, ?)');
+    sqliteDb.transaction((list) => {
+      for (const t of list) insert.run(t.id, JSON.stringify(t));
+    })(tests);
   },
   getCalls: () => {
     const rows = sqliteDb.prepare('SELECT * FROM calls').all() as any[];

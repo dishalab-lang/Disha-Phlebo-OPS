@@ -61,7 +61,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     time: ''
   });
 
-  const [tripFilter, setTripFilter] = useState<'DAY' | 'WEEK' | 'MONTH'>('DAY');
+  const [tripFilter, setTripFilter] = useState<'DAY' | 'WEEK' | 'MONTH' | 'ALL'>('DAY');
 
   const myActiveCalls = useMemo(() => 
     calls.filter(c => c.assignedPhleboId === currentUser?.id && ![CallStatus.COMPLETED, CallStatus.REJECTED].includes(c.status)),
@@ -84,6 +84,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     return history.filter(h => {
       const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'SYSTEM_ADMIN' || currentUser?.role === 'DEVELOPER';
       if (!isAdmin && h.phleboId !== currentUser?.id) return false;
+      if (tripFilter === 'ALL') return true;
       const timeDiff = now - h.timestamp;
       if (tripFilter === 'DAY') return timeDiff <= dayMs;
       if (tripFilter === 'WEEK') return timeDiff <= weekMs;
@@ -117,8 +118,8 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 
   const personalTripStats = useMemo(() => {
     return {
-      totalKm: myTrips.reduce((acc, curr) => acc + curr.distance, 0),
-      totalIncentive: myTrips.reduce((acc, curr) => acc + curr.incentive, 0),
+      totalKm: myTrips.reduce((acc, curr) => acc + (Number(curr.distance) || 0), 0),
+      totalIncentive: myTrips.reduce((acc, curr) => acc + (Number(curr.incentive) || 0), 0),
       totalTrips: myTrips.length
     };
   }, [myTrips]);
@@ -410,228 +411,259 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
             </div>
           )}
 
-          {activeCall && (
-            <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up ${currentTime - activeCall.placedAt > activeCall.estimatedTatMinutes * 60000 ? 'border-red-500' : 'border-slate-50'}`}>
-              <div className={`${activeCall.isPriority ? 'brand-gradient' : 'bg-brand-purple'} p-8 text-white relative`}>
-                 <div className="absolute top-6 right-8 text-right">
-                    <span className="block text-[8px] font-black uppercase opacity-60">Status</span>
-                    <span className="text-xs font-black uppercase tracking-widest">{activeCall.status.replace('_', ' ')}</span>
-                 </div>
-                 <h2 className="text-3xl font-black tracking-tight">{activeCall.patientName}</h2>
-                 <p className="text-[10px] font-bold opacity-80 mt-2 flex items-center gap-2 max-w-[80%] truncate"><MapPin size={12}/> {activeCall.destination.address}</p>
-                 
-                 <div className="flex gap-2 mt-6">
-                    <button onClick={handleNavigate} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
-                       <ExternalLink size={14} /> Navigate
-                    </button>
-                    <button onClick={handleCallPatient} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
-                       <Phone size={14} /> Call
-                    </button>
-                 </div>
-              </div>
+           {activeCall && (() => {
+             const isDelayed = currentTime - activeCall.placedAt > activeCall.estimatedTatMinutes * 60000;
+             return (
+               <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up transition-all duration-500 ${isDelayed ? 'border-red-500 ring-4 ring-red-500/20 animate-[pulse_2s_infinite]' : 'border-slate-50'}`}>
+                 <div className={`${activeCall.isPriority ? 'brand-gradient' : 'bg-brand-purple'} p-8 text-white relative`}>
+                    <div className="absolute top-6 right-8 text-right flex flex-col items-end">
+                       {isDelayed && (
+                         <div className="flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[9px] font-black uppercase tracking-widest mb-3 animate-pulse border border-white/30">
+                           <AlertTriangle size={12} className="text-yellow-300" />
+                           <span>Delayed TAT</span>
+                         </div>
+                       )}
+                       <div className="flex flex-col items-end">
+                         <span className="block text-[8px] font-black uppercase opacity-60">Status</span>
+                         <span className="text-xs font-black uppercase tracking-widest">{activeCall.status.replace('_', ' ')}</span>
+                       </div>
+                    </div>
+                  <h2 className="text-3xl font-black tracking-tight">{activeCall.patientName}</h2>
+                  <p className="text-[10px] font-bold opacity-80 mt-2 flex items-center gap-2 max-w-[80%] truncate"><MapPin size={12}/> {activeCall.destination.address}</p>
+                  
+                  <div className="flex gap-2 mt-6">
+                     <button onClick={handleNavigate} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
+                        <ExternalLink size={14} /> Navigate
+                     </button>
+                     <button onClick={handleCallPatient} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
+                        <Phone size={14} /> Call
+                     </button>
+                  </div>
+               </div>
 
-              <div className="p-8 space-y-8">
-                 <div className="grid grid-cols-3 gap-3">
-                    <ArtifactCard type="VISIT" label="Visit Photo" data={activeCall.visitPhoto} icon={Camera} />
-                    <ArtifactCard type="SAMPLE" label="Vial/Sample" data={activeCall.samplePhoto} icon={FlaskConical} />
-                    <ArtifactCard type="HANDOVER" label="Receipt" data={activeCall.handoverPhoto} icon={PackageCheck} />
-                 </div>
-
-                 <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isRecording ? 'bg-red-500 text-white animate-pulse' : activeCall.voiceNote ? 'bg-brand-green/10 text-brand-green' : 'bg-slate-200 text-slate-400'}`}>
-                          {isRecording ? <Square size={20} /> : activeCall.voiceNote ? <Volume2 size={20} /> : <Mic size={20} />}
+               <div className="p-8 space-y-8">
+                  {geoError && (activeCall.status === CallStatus.VISITING || activeCall.status === CallStatus.IN_PROGRESS) && !isSimulatingGps && (
+                    <div className="bg-red-600 text-white p-6 rounded-[2rem] flex items-center gap-6 animate-shake shadow-2xl border-4 border-white/20">
+                       <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
+                          <ShieldAlert size={36} className="animate-pulse" />
                        </div>
                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Voice Context</p>
-                          <p className="text-xs font-black text-slate-700">
-                             {isRecording ? 'Recording Memo...' : activeCall.voiceNote ? 'Voice Note Attached' : 'Add Voice Memo'}
-                          </p>
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Security Protocol Violation</p>
+                          <h4 className="text-lg font-black leading-tight mt-1">Movement Outside Geofence Detected</h4>
+                          <p className="text-xs font-bold mt-1 opacity-90">{geoError}</p>
+                          <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full text-[8px] font-black uppercase tracking-widest">
+                             <Radar size={10} /> Live Monitoring Active
+                          </div>
                        </div>
                     </div>
-                    <div className="flex gap-2">
-                       {activeCall.voiceNote && !isRecording && (
-                          <button onClick={() => playVoiceNote(activeCall.voiceNote!)} className="bg-brand-purple text-white p-3 rounded-xl shadow-md active:scale-95 transition-all">
-                             <Play size={16} fill="currentColor" />
-                          </button>
-                       )}
-                       <button 
-                          onClick={isRecording ? stopRecording : startRecording} 
-                          className={`p-3 rounded-xl shadow-md active:scale-95 transition-all ${isRecording ? 'bg-red-500 text-white' : 'bg-white text-slate-600 border border-slate-100'}`}
-                       >
-                          {isRecording ? <Square size={16} /> : <Mic size={16} />}
-                       </button>
-                    </div>
-                 </div>
-                 
-                 {activeCall.status === CallStatus.VISITING && (
-                   <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
-                      <div className="flex justify-between items-center px-2">
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Patient Auth PIN</p>
-                        <div className="flex items-center gap-2">
-                          <Clock size={10} className="text-orange-400" />
-                          <span className="text-[9px] font-black text-orange-400 uppercase">
-                            Exp: {Math.max(0, Math.floor((activeCall.otpExpiresAt - currentTime) / 1000))}s
-                          </span>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-3">
+                     <ArtifactCard type="VISIT" label="Visit Photo" data={activeCall.visitPhoto} icon={Camera} />
+                     <ArtifactCard type="SAMPLE" label="Vial/Sample" data={activeCall.samplePhoto} icon={FlaskConical} />
+                     <ArtifactCard type="HANDOVER" label="Receipt" data={activeCall.handoverPhoto} icon={PackageCheck} />
+                  </div>
+
+                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex items-center justify-between">
+                     <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isRecording ? 'bg-red-500 text-white animate-pulse' : activeCall.voiceNote ? 'bg-brand-green/10 text-brand-green' : 'bg-slate-200 text-slate-400'}`}>
+                           {isRecording ? <Square size={20} /> : activeCall.voiceNote ? <Volume2 size={20} /> : <Mic size={20} />}
                         </div>
-                      </div>
-                      <input 
-                        type="text" maxLength={4} placeholder="----"
-                        value={verificationInput}
-                        disabled={activeCall.isOtpLocked}
-                        onChange={(e) => setVerificationInput(e.target.value.replace(/[^0-9]/g, ''))}
-                        className={`w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10 ${activeCall.isOtpLocked ? 'opacity-50' : ''}`}
-                      />
-                      <div className="flex justify-between items-center px-2">
-                        <span className="text-[8px] font-bold text-white/40 uppercase">
-                          {activeCall.isOtpLocked ? 'NODE LOCKED' : `${3 - activeCall.otpRetryCount} attempts remaining`}
-                        </span>
+                        <div>
+                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Voice Context</p>
+                           <p className="text-xs font-black text-slate-700">
+                              {isRecording ? 'Recording Memo...' : activeCall.voiceNote ? 'Voice Note Attached' : 'Add Voice Memo'}
+                           </p>
+                        </div>
+                     </div>
+                     <div className="flex gap-2">
+                        {activeCall.voiceNote && !isRecording && (
+                           <button onClick={() => playVoiceNote(activeCall.voiceNote!)} className="bg-brand-purple text-white p-3 rounded-xl shadow-md active:scale-95 transition-all">
+                              <Play size={16} fill="currentColor" />
+                           </button>
+                        )}
                         <button 
-                          onClick={() => { onResendOtp(activeCall.id); setVerificationInput(''); }}
-                          className="text-[9px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-all"
+                           onClick={isRecording ? stopRecording : startRecording} 
+                           className={`p-3 rounded-xl shadow-md active:scale-95 transition-all ${isRecording ? 'bg-red-500 text-white' : 'bg-white text-slate-600 border border-slate-100'}`}
                         >
-                          Resend PIN
+                           {isRecording ? <Square size={16} /> : <Mic size={16} />}
                         </button>
-                      </div>
-                   </div>
-                 )}
-
-                 <div className="space-y-4">
-                    {activeCall.status === CallStatus.VISITING && activeCall.billing?.paymentStatus === 'PENDING' && (
-                       <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
-                          <div className="flex justify-between items-center">
-                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Collection</span>
-                             <span className="text-sm font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                             <button onClick={() => setShowUpiModal(true)} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-purple transition-all">
-                                <QrCode size={24} className="text-brand-purple" />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">UPI QR</span>
-                             </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
-                                <Wallet size={24} className="text-brand-green" />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Cash</span>
-                             </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
-                                <CreditCard size={24} className="text-blue-500" />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Card</span>
-                             </button>
-                             <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
-                                <Link size={24} className="text-orange-500" />
-                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Link</span>
-                             </button>
-                          </div>
+                     </div>
+                  </div>
+                  
+                  {activeCall.status === CallStatus.VISITING && (
+                    <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
+                       <div className="flex justify-between items-center px-2">
+                         <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Patient Auth PIN</p>
+                         <div className="flex items-center gap-2">
+                           <Clock size={10} className="text-orange-400" />
+                           <span className="text-[9px] font-black text-orange-400 uppercase">
+                             Exp: {Math.max(0, Math.floor((activeCall.otpExpiresAt - currentTime) / 1000))}s
+                           </span>
+                         </div>
                        </div>
-                    )}
-
-                    {activeCall.status === CallStatus.ACCEPTED && (
-                       <button onClick={handleArrived} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95">
-                          <Navigation size={24} /> Confirm Arrival
-                       </button>
-                    )}
-                    {activeCall.status === CallStatus.VISITING && (
-                       <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample Logging</p>
-                          <select 
-                            value={activeCall.sampleType || ''} 
-                            onChange={(e) => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { sampleType: e.target.value })}
-                            className="w-full p-4 rounded-xl border-2 border-slate-100 text-xs font-bold focus:border-brand-purple outline-none"
-                          >
-                            <option value="">Select Sample Type</option>
-                            <option value="Blood">Blood</option>
-                            <option value="Urine">Urine</option>
-                            <option value="Swab">Swab</option>
-                            <option value="Stool">Stool</option>
-                            <option value="Sputum">Sputum</option>
-                          </select>
-                          <button 
-                             onClick={handleVerifyAndStart} 
-                             disabled={(activeCall.billing?.paymentStatus || 'PENDING') === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || !activeCall.sampleType || verificationInput.length < 4} 
-                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${(activeCall.billing?.paymentStatus || 'PENDING') === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && activeCall.sampleType && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
-                          >
-                             <Fingerprint size={24} /> Verify & Start Collection
-                          </button>
+                       <input 
+                         type="text" maxLength={4} placeholder="----"
+                         value={verificationInput}
+                         disabled={activeCall.isOtpLocked}
+                         onChange={(e) => setVerificationInput(e.target.value.replace(/[^0-9]/g, ''))}
+                         className={`w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10 ${activeCall.isOtpLocked ? 'opacity-50' : ''}`}
+                       />
+                       <div className="flex justify-between items-center px-2">
+                         <span className="text-[8px] font-bold text-white/40 uppercase">
+                           {activeCall.isOtpLocked ? 'NODE LOCKED - CONTACT DISPATCH' : `${3 - activeCall.otpRetryCount} attempts remaining`}
+                         </span>
+                         {(!activeCall.isOtpLocked && Date.now() <= activeCall.otpExpiresAt) && (
+                           <button 
+                             onClick={() => { onResendOtp(activeCall.id); setVerificationInput(''); }}
+                             className="text-[9px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-all"
+                           >
+                             Resend PIN
+                           </button>
+                         )}
+                         {(activeCall.isOtpLocked || Date.now() > activeCall.otpExpiresAt) && (
+                           <span className="text-[7px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg">
+                             PIN Expired - Call Dispatch
+                           </span>
+                         )}
                        </div>
-                    )}
-
-                    {activeCall.status === CallStatus.IN_PROGRESS && (
-                       <button 
-                          onClick={handleCompleteCollection} 
-                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
-                       >
-                          <CheckCircle2 size={24} /> Finish Collection
-                       </button>
-                    )}
-                    {activeCall.status === CallStatus.COLLECTED && (
-                       <button 
-                          onClick={() => onUpdateStatus(activeCall.id, CallStatus.IN_TRANSIT, currentUser.id)} 
-                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-orange-500 text-white"
-                       >
-                          <Truck size={24} /> Start Transit to Lab
-                       </button>
-                    )}
-
-                    {activeCall.status === CallStatus.IN_TRANSIT && (
-                       <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
-                          <div className="flex justify-between items-center px-2">
-                            <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Dispatch Handover PIN</p>
-                            <button 
-                              onClick={() => onResendOtp(activeCall.id, true)}
-                              className="text-[9px] font-black text-brand-purple uppercase tracking-widest bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/20 transition-all"
-                            >
-                              Resend PIN
-                            </button>
-                          </div>
-                          <input 
-                            type="text" maxLength={4} placeholder="----"
-                            value={handoverInput}
-                            onChange={(e) => setHandoverInput(e.target.value.replace(/[^0-9]/g, ''))}
-                            className="w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10"
-                          />
-                          <button 
-                             onClick={() => {
-                               if (handoverInput === activeCall.handoverCode) {
-                                 onUpdateStatus(activeCall.id, CallStatus.RECEIVED_AT_LAB, currentUser.id);
-                                 setHandoverInput('');
-                               } else {
-                                 alert("Invalid Handover PIN. Please confirm with Dispatch.");
-                               }
-                             }}
-                             disabled={handoverInput.length < 4}
-                             className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${handoverInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
-                          >
-                             <PackageCheck size={24} /> Handover to Lab Hub
-                          </button>
-                       </div>
-                    )}
-
-                    {activeCall.status === CallStatus.RECEIVED_AT_LAB && (
-                       <button 
-                          onClick={() => onUpdateStatus(activeCall.id, CallStatus.COMPLETED, currentUser.id)} 
-                          className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
-                       >
-                          <CheckCircle2 size={24} /> Complete Task
-                       </button>
-                    )}
-                 </div>
-
-                 {geoError && <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center border border-red-100 flex items-center justify-center gap-2 animate-shake"><AlertTriangle size={14} /> {geoError}</div>}
-                 
-                 <div className="flex justify-between items-center px-2">
-                    <div className="flex flex-col">
-                       <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Quote Total</span>
-                       <span className="text-lg font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
                     </div>
-                    <div className="flex flex-col items-end">
-                       <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TAT Countdown</span>
-                       <span className={`text-lg font-black ${currentTime - activeCall.placedAt > activeCall.estimatedTatMinutes * 60000 ? 'text-red-500' : 'text-brand-purple'}`}>
-                          {Math.max(0, activeCall.estimatedTatMinutes - Math.floor((currentTime - activeCall.placedAt) / 60000))}m Left
-                       </span>
+                  )}
+
+                  <div className="space-y-4">
+                     {activeCall.status === CallStatus.VISITING && activeCall.billing?.paymentStatus === 'PENDING' && (
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4">
+                           <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payment Collection</span>
+                              <span className="text-sm font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
+                           </div>
+                           <div className="grid grid-cols-2 gap-3">
+                              <button onClick={() => setShowUpiModal(true)} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-purple transition-all">
+                                 <QrCode size={24} className="text-brand-purple" />
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">UPI QR</span>
+                              </button>
+                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
+                                 <Wallet size={24} className="text-brand-green" />
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Cash</span>
+                              </button>
+                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
+                                 <CreditCard size={24} className="text-blue-500" />
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Card</span>
+                              </button>
+                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
+                                 <Link size={24} className="text-orange-500" />
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Link</span>
+                              </button>
+                           </div>
+                        </div>
+                     )}
+
+                     {activeCall.status === CallStatus.ACCEPTED && (
+                        <button onClick={handleArrived} className="w-full bg-slate-900 text-white py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95">
+                           <Navigation size={24} /> Confirm Arrival
+                        </button>
+                     )}
+                     {activeCall.status === CallStatus.VISITING && (
+                        <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample Logging</p>
+                           <select 
+                             value={activeCall.sampleType || ''} 
+                             onChange={(e) => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { sampleType: e.target.value })}
+                             className="w-full p-4 rounded-xl border-2 border-slate-100 text-xs font-bold focus:border-brand-purple outline-none"
+                           >
+                             <option value="">Select Sample Type</option>
+                             <option value="Blood">Blood</option>
+                             <option value="Urine">Urine</option>
+                             <option value="Swab">Swab</option>
+                             <option value="Stool">Stool</option>
+                             <option value="Sputum">Sputum</option>
+                           </select>
+                           <button 
+                              onClick={handleVerifyAndStart} 
+                              disabled={(activeCall.billing?.paymentStatus || 'PENDING') === 'PENDING' || !activeCall.visitPhoto || !activeCall.samplePhoto || !activeCall.sampleType || verificationInput.length < 4} 
+                              className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${(activeCall.billing?.paymentStatus || 'PENDING') === 'PAID' && activeCall.visitPhoto && activeCall.samplePhoto && activeCall.sampleType && verificationInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
+                           >
+                              <Fingerprint size={24} /> Verify & Start Collection
+                           </button>
+                        </div>
+                     )}
+
+                     {activeCall.status === CallStatus.IN_PROGRESS && (
+                        <button 
+                           onClick={handleCompleteCollection} 
+                           className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
+                        >
+                           <CheckCircle2 size={24} /> Finish Collection
+                        </button>
+                     )}
+                     {activeCall.status === CallStatus.COLLECTED && (
+                        <button 
+                           onClick={() => onUpdateStatus(activeCall.id, CallStatus.IN_TRANSIT, currentUser.id)} 
+                           className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-orange-500 text-white"
+                        >
+                           <Truck size={24} /> Start Transit to Lab
+                        </button>
+                     )}
+
+                     {activeCall.status === CallStatus.IN_TRANSIT && (
+                        <div className="bg-slate-900 text-white p-8 rounded-[2rem] space-y-4">
+                           <div className="flex justify-between items-center px-2">
+                             <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Enter Dispatch Handover PIN</p>
+                           </div>
+                           <input 
+                             type="text" maxLength={4} placeholder="----"
+                             value={handoverInput}
+                             onChange={(e) => setHandoverInput(e.target.value.replace(/[^0-9]/g, ''))}
+                             className="w-full bg-white/10 p-6 rounded-2xl text-center text-5xl font-black tracking-[0.5em] outline-none placeholder:text-white/10"
+                           />
+                           <button 
+                              onClick={() => {
+                                if (handoverInput === activeCall.handoverCode) {
+                                  onUpdateStatus(activeCall.id, CallStatus.RECEIVED_AT_LAB, currentUser.id);
+                                  setHandoverInput('');
+                                } else {
+                                  alert("Invalid Handover PIN. Please confirm with Dispatch.");
+                                }
+                              }}
+                              disabled={handoverInput.length < 4}
+                              className={`w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all ${handoverInput.length === 4 ? 'bg-brand-purple text-white' : 'bg-slate-100 text-slate-300'}`}
+                           >
+                              <PackageCheck size={24} /> Handover to Lab Hub
+                           </button>
+                        </div>
+                     )}
+
+                     {activeCall.status === CallStatus.RECEIVED_AT_LAB && (
+                        <button 
+                           onClick={() => onUpdateStatus(activeCall.id, CallStatus.COMPLETED, currentUser.id)} 
+                           className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
+                        >
+                           <CheckCircle2 size={24} /> Accept Sample
+                        </button>
+                     )}
+                  </div>
+
+                  {geoError && (activeCall.status !== CallStatus.VISITING && activeCall.status !== CallStatus.IN_PROGRESS) && (
+                    <div className="p-4 bg-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase text-center border border-red-100 flex items-center justify-center gap-2 animate-shake">
+                      <AlertTriangle size={14} /> {geoError}
                     </div>
-                 </div>
-              </div>
+                  )}
+                  
+                  <div className="flex justify-between items-center px-2">
+                     <div className="flex flex-col">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Quote Total</span>
+                        <span className="text-lg font-black text-slate-900">₹{(activeCall.billing?.totalAmount || 0).toLocaleString()}</span>
+                     </div>
+                     <div className="flex flex-col items-end">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TAT Countdown</span>
+                        <span className={`text-lg font-black ${isDelayed ? 'text-red-500' : 'text-brand-purple'}`}>
+                           {Math.max(0, activeCall.estimatedTatMinutes - Math.floor((currentTime - activeCall.placedAt) / 60000))}m Left
+                        </span>
+                     </div>
+                  </div>
+               </div>
             </div>
-          )}
+           );})()}
 
           <div className="space-y-6 animate-slide-up pt-4">
              <div className="flex items-center justify-between px-2">
@@ -692,19 +724,19 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
               <div className="flex justify-between items-center">
                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Performance Summary</h3>
                  <div className="flex bg-slate-50 p-1 rounded-xl border">
-                    {(['DAY', 'WEEK', 'MONTH'] as const).map(f => (
-                       <button key={f} onClick={() => setTripFilter(f)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${tripFilter === f ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>{f}</button>
+                    {(['DAY', 'WEEK', 'MONTH', 'ALL'] as const).map(f => (
+                       <button key={f} onClick={() => setTripFilter(f)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${tripFilter === f ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400'}`}>{f}</button>
                     ))}
                  </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                  <div className="bg-slate-50 p-6 rounded-3xl flex flex-col items-center">
                     <span className="text-[8px] font-black text-slate-400 uppercase mb-2">My Payout</span>
-                    <span className="text-lg font-black text-brand-green">₹{personalTripStats.totalIncentive.toFixed(0)}</span>
+                    <span className="text-lg font-black text-brand-green">₹{(Number(personalTripStats.totalIncentive) || 0).toFixed(0)}</span>
                  </div>
                  <div className="bg-slate-50 p-6 rounded-3xl flex flex-col items-center">
                     <span className="text-[8px] font-black text-slate-400 uppercase mb-2">Coverage</span>
-                    <span className="text-lg font-black text-slate-900">{personalTripStats.totalKm.toFixed(1)}km</span>
+                    <span className="text-lg font-black text-slate-900">{(Number(personalTripStats.totalKm) || 0).toFixed(1)}km</span>
                  </div>
                  <div className="bg-slate-50 p-6 rounded-3xl flex flex-col items-center">
                     <span className="text-[8px] font-black text-slate-400 uppercase mb-2">Handovers</span>
@@ -721,11 +753,11 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                        </div>
                        <div className="flex flex-col">
                           <span className="text-sm font-black text-slate-900">{trip.patientName}</span>
-                          <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(trip.timestamp).toLocaleDateString()} • {trip.distance.toFixed(1)}km</span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(trip.timestamp).toLocaleDateString()} • {(Number(trip.distance) || 0).toFixed(1)}km</span>
                        </div>
                     </div>
                     <div className="text-right flex flex-col items-end gap-2">
-                       <div className="text-sm font-black text-brand-green">+₹{trip.incentive.toFixed(0)}</div>
+                       <div className="text-sm font-black text-brand-green">+₹{(Number(trip.incentive) || 0).toFixed(0)}</div>
                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{trip.totalTat}m TAT</span>
                        <button 
                          onClick={() => handleDownloadInvoice(trip)}
@@ -905,7 +937,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 };
 
 const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist }> = ({ history, currentUser }) => {
-  const [reportRange, setReportRange] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY');
+  const [reportRange, setReportRange] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY' | 'ALL'>('DAILY');
 
   const filteredHistory = useMemo(() => {
     const now = Date.now();
@@ -915,6 +947,7 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
 
     return history.filter(h => {
       if (h.phleboId !== currentUser.id) return false;
+      if (reportRange === 'ALL') return true;
       const timeDiff = now - h.timestamp;
       if (reportRange === 'DAILY') return timeDiff <= dayMs;
       if (reportRange === 'WEEKLY') return timeDiff <= weekMs;
@@ -926,9 +959,9 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
     return {
       totalCalls: filteredHistory.length,
       completedSamples: filteredHistory.filter(h => h.status === 'COMPLETED').length,
-      totalRevenue: filteredHistory.reduce((sum, h) => sum + h.revenue, 0),
-      totalIncentive: filteredHistory.reduce((sum, h) => sum + h.incentive, 0),
-      totalDistance: filteredHistory.reduce((sum, h) => sum + h.distance, 0),
+      totalRevenue: filteredHistory.reduce((sum, h) => sum + (Number(h.revenue) || 0), 0),
+      totalIncentive: filteredHistory.reduce((sum, h) => sum + (Number(h.incentive) || 0), 0),
+      totalDistance: filteredHistory.reduce((sum, h) => sum + (Number(h.distance) || 0), 0),
     };
   }, [filteredHistory]);
 
@@ -946,7 +979,7 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
       body: [
         ['Total Collection Calls', stats.totalCalls],
         ['Samples Collected', stats.completedSamples],
-        ['Total Distance (km)', stats.totalDistance.toFixed(2)],
+        ['Total Distance (km)', (Number(stats.totalDistance) || 0).toFixed(2)],
         ['Total Revenue (₹)', stats.totalRevenue.toLocaleString()],
         ['Total Incentive (₹)', stats.totalIncentive.toLocaleString()],
       ],
@@ -965,7 +998,7 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
             <BarChart3 size={18} className="text-brand-purple" /> Performance Summary
           </h3>
           <div className="flex bg-slate-50 p-1 rounded-xl border gap-1">
-            {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(range => (
+            {(['DAILY', 'WEEKLY', 'MONTHLY', 'ALL'] as const).map(range => (
               <button
                 key={range}
                 onClick={() => setReportRange(range)}
@@ -988,7 +1021,7 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
           </div>
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Distance</p>
-            <p className="text-3xl font-black text-slate-900">{stats.totalDistance.toFixed(1)} <span className="text-sm">km</span></p>
+            <p className="text-3xl font-black text-slate-900">{(Number(stats.totalDistance) || 0).toFixed(1)} <span className="text-sm">km</span></p>
           </div>
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earnings</p>

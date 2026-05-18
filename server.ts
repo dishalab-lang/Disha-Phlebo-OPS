@@ -18,30 +18,33 @@ const db = {
   config: { system_config: dbHelper.getConfig() || JSON.stringify(INITIAL_CONFIG) },
   labs: dbHelper.getLabs(),
   hospitals: dbHelper.getHospitals(),
-  logs: dbHelper.getLogs()
+  logs: dbHelper.getLogs(),
+  tests: dbHelper.getTests()
 };
 
 // Initialize with mock data if empty
-if (db.labs.size === 0) {
-  MOCK_LABS.forEach(l => {
-    db.labs.set(l.id, l);
-    dbHelper.setLab(l.id, l);
-  });
+if (db.tests.length === 0) {
+  db.tests = MOCK_TESTS;
+  dbHelper.setTests(MOCK_TESTS);
 }
 
-if (db.hospitals.size === 0) {
-  MOCK_HOSPITALS.forEach(h => {
-    const data = {
-      id: h.id,
-      name: h.name,
-      address: h.address || null,
-      lat: h.lat || 0,
-      lng: h.lng || 0
-    };
-    db.hospitals.set(h.id, data);
-    dbHelper.setHospital(h.id, data);
-  });
-}
+// Always update with mock data on startup to ensure location changes (like Satara) take effect
+MOCK_LABS.forEach(l => {
+  db.labs.set(l.id, l);
+  dbHelper.setLab(l.id, l);
+});
+
+MOCK_HOSPITALS.forEach(h => {
+  const data = {
+    id: h.id,
+    name: h.name,
+    address: h.address || null,
+    lat: h.lat || 0,
+    lng: h.lng || 0
+  };
+  db.hospitals.set(h.id, data);
+  dbHelper.setHospital(h.id, data);
+});
 
 if (db.users.size === 0) {
   // Default Admin User
@@ -316,6 +319,17 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get("/api/tests", async (req, res) => {
+    res.json(db.tests);
+  });
+
+  app.post("/api/tests", async (req, res) => {
+    const tests = req.body;
+    db.tests = tests;
+    dbHelper.setTests(tests);
+    res.json({ success: true });
+  });
+
   app.get("/api/metrics", async (req, res) => {
     const metrics = Array.from(db.metrics.values())
       .sort((a: any, b: any) => b.timestamp - a.timestamp)
@@ -376,6 +390,7 @@ async function startServer() {
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     loginOtps.set(user.id, { otp, expires: Date.now() + 5 * 60 * 1000 });
+    console.log(`[DEV] Login OTP generated for ${user.username || user.email || user.phone}: ${otp}`);
 
     try {
       let methods = [];
@@ -441,6 +456,7 @@ async function startServer() {
     user.password = tempPassword;
     db.users.set(user.id, user);
     dbHelper.setUser(user.id, user);
+    console.log(`[DEV] Password reset generated for ${user.username || user.email || user.phone}: ${tempPassword}`);
 
     let msg = [];
     if (user.email) {
@@ -660,6 +676,14 @@ async function startServer() {
         ).catch(err => console.error("Failed to send assignment SMS:", err));
       }
 
+      // Send SMS to phlebotomist about new assignment
+      if (phlebo && phlebo.phone) {
+        sendSMS(
+          phlebo.phone,
+          `New Assignment: ${updatedCall.patientName} at ${updatedCall.destination.address}. Booking ID: ${id} - Disha Phlebo`
+        ).catch(err => console.error("Failed to send phlebo assignment SMS:", err));
+      }
+
       // Send Email to patient
       if (updatedCall.patientEmail) {
         sendEmail(
@@ -826,6 +850,17 @@ async function startServer() {
     dbHelper.setUser(id, updatedUser);
     io.emit('user_updated', { id, ...updates });
     res.json({ success: true });
+  });
+
+  app.delete("/api/users/:id", async (req, res) => {
+    const { id } = req.params;
+    if (db.users.has(id)) {
+      db.users.delete(id);
+      dbHelper.deleteUser(id);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ success: false, message: "User not found" });
+    }
   });
 
   app.post("/api/analyze-performance", async (req, res) => {

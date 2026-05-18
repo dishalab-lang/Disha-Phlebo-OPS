@@ -47,7 +47,7 @@ export async function sendEmail(to: string, subject: string, text: string, html?
     console.log('Email sent: %s', info.messageId);
     return info;
   } catch (error) {
-    console.error('Error sending email:', error);
-    throw error;
+    // console.error('Error sending email:', error); // Muted to prevent spam
+    return { error: error instanceof Error ? error.message : String(error) };
   }
 }

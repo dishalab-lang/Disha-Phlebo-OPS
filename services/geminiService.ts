@@ -18,8 +18,8 @@ export const analyzePerformance = async (metrics: CallMetrics[], phleboName: str
   const prompt = `
     Analyze the performance of Phlebotomist ${phleboName} based on the following monthly stats:
     - Total Calls: ${metrics.length}
-    - Average TAT: ${avgTat.toFixed(2)} minutes
-    - TAT Achievement Rate: ${tatAchievementRate.toFixed(2)}%
+    - Average TAT: ${(Number(avgTat) || 0).toFixed(2)} minutes
+    - TAT Achievement Rate: ${(Number(tatAchievementRate) || 0).toFixed(2)}%
     - Standard TAT Threshold: 30 minutes
     
     Assign a Grade (A, B, or C) and provide a short constructive feedback paragraph.

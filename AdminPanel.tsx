@@ -73,12 +73,13 @@ interface AdminPanelProps {
   onUpdateLabs: (labs: DiagnosticLab[]) => void;
   onUpdateHospitals: (hospitals: Hospital[]) => void;
   onUpdatePhleboRole: (id: string, role: StaffRole) => void;
+  onUpdateCallStatus: (id: string, status: CallStatus, phleboId?: string) => void;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
   config, labs, hospitals, onUpdateConfig, onRegisterLab, onUpdateLab, history, 
   phleboList, activeCalls, currentUser, tests, onUpdateShift, 
-  onRegisterPhlebo, onRemovePhlebo, onUpdateUserStatus, onUpdateTests, onUpdateLabs, onUpdateHospitals, onUpdatePhleboRole
+  onRegisterPhlebo, onRemovePhlebo, onUpdateUserStatus, onUpdateTests, onUpdateLabs, onUpdateHospitals, onUpdatePhleboRole, onUpdateCallStatus
 }) => {
   const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG' | 'PERFORMANCE'>('FLEET');
   const [editedConfig, setEditedConfig] = useState(config);
@@ -212,8 +213,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [history, ledgerStartDate, ledgerEndDate]);
 
   const stats = useMemo(() => {
-    const totalRevenue = filteredHistory.reduce((sum, item) => sum + item.revenue, 0);
-    const avgTat = filteredHistory.length > 0 ? filteredHistory.reduce((sum, item) => sum + item.totalTat, 0) / filteredHistory.length : 0;
+    const totalRevenue = filteredHistory.reduce((sum, item) => sum + (Number(item.revenue) || 0), 0);
+    const avgTat = filteredHistory.length > 0 ? filteredHistory.reduce((sum, item) => sum + (Number(item.totalTat) || 0), 0) / filteredHistory.length : 0;
     return { totalRevenue, totalSamples: filteredHistory.length, avgTat, premiumCount: filteredHistory.filter(h => h.isPremiumIncentive).length };
   }, [filteredHistory]);
 
@@ -323,8 +324,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       new Date(h.timestamp).toLocaleDateString(),
       h.patientName,
       h.phleboName,
-      `₹${h.revenue.toFixed(2)}`,
-      `₹${h.incentive.toFixed(2)}`,
+      `₹${(Number(h.revenue) || 0).toFixed(2)}`,
+      `₹${(Number(h.incentive) || 0).toFixed(2)}`,
       h.paymentMode
     ]);
 
@@ -338,7 +339,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
     const finalY = (doc as any).lastAutoTable.finalY || 150;
     doc.setFont('helvetica', 'bold');
-    doc.text(`Total Revenue: ₹${stats.totalRevenue.toFixed(2)}`, 130, finalY + 15);
+    doc.text(`Total Revenue: ₹${(Number(stats.totalRevenue) || 0).toFixed(2)}`, 130, finalY + 15);
     doc.text(`Total Samples: ${stats.totalSamples}`, 130, finalY + 22);
 
     doc.save(`Disha_Ledger_${ledgerStartDate}_${ledgerEndDate}.pdf`);
@@ -385,7 +386,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
              </div>
              <div className="bg-white p-6 rounded-[1.5rem] border shadow-sm">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">TAT (Avg)</p>
-                <h3 className="text-3xl font-black text-brand-purple">{stats.avgTat.toFixed(0)}m</h3>
+                <h3 className="text-3xl font-black text-brand-purple">{(Number(stats.avgTat) || 0).toFixed(0)}m</h3>
              </div>
           </div>
         </div>
@@ -478,9 +479,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Mission Control Center</h3>
                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Real-time progress of all active and completed diagnostic collection trips</p>
               </div>
-           </div>
-
-           {/* Active Missions Section */}
+                     {/* Active Missions Section */}
            <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-50 bg-brand-purple/5">
                  <h4 className="text-[10px] font-black text-brand-purple uppercase tracking-[0.2em] flex items-center gap-2">
@@ -494,7 +493,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           <th className="px-8 py-5">Patient</th>
                           <th className="px-8 py-5">Personnel</th>
                           <th className="px-8 py-5 text-center">Status</th>
-                          <th className="px-8 py-5 text-right">Progress</th>
+                          <th className="px-8 py-5 text-center">Progress</th>
+                          <th className="px-8 py-5 text-right">Controls</th>
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -526,17 +526,39 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                          {call.status}
                                       </span>
                                    </td>
-                                   <td className="px-8 py-6 text-right">
-                                      <div className="w-full max-w-[100px] ml-auto bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                   <td className="px-8 py-6 text-center">
+                                      <div className="w-full max-w-[100px] mx-auto bg-slate-100 h-1.5 rounded-full overflow-hidden">
                                          <div 
-                                            className={`h-full transition-all duration-500 ${
+                                            className={`h-full transition-all duration-500 mx-auto ${
                                                call.status === CallStatus.PENDING ? 'w-[10%] bg-slate-300' :
                                                call.status === CallStatus.ACCEPTED ? 'w-[30%] bg-blue-400' :
                                                call.status === CallStatus.VISITING ? 'w-[50%] bg-orange-400' :
                                                call.status === CallStatus.IN_PROGRESS ? 'w-[75%] bg-brand-purple' :
                                                'w-[90%] bg-brand-green'
                                             }`}
-                                         />
+                                          />
+                                       </div>
+                                   </td>
+                                   <td className="px-8 py-6 text-right">
+                                      <div className="flex flex-col gap-2 items-end">
+                                         {call.status === CallStatus.RECEIVED_AT_LAB && (
+                                            <button 
+                                               onClick={() => onUpdateCallStatus(call.id, CallStatus.COMPLETED, currentUser.id)}
+                                               className="p-2 bg-green-50 text-brand-green rounded-lg hover:bg-green-100 transition-all flex items-center gap-1 text-[8px] font-black uppercase tracking-widest border border-green-100"
+                                               title="Accept Sample and Complete Trip"
+                                            >
+                                               <CheckCircle2 size={10} /> Accept Sample
+                                            </button>
+                                         )}
+                                         {call.status !== CallStatus.PENDING && (
+                                            <button 
+                                               onClick={() => onUpdateCallStatus(call.id, CallStatus.PENDING, currentUser.id)}
+                                               className="p-2 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-all flex items-center gap-1 text-[8px] font-black uppercase tracking-widest border border-red-100"
+                                               title="Reset Call to Pool"
+                                            >
+                                               <RefreshCw size={10} /> Redeploy
+                                            </button>
+                                         )}
                                       </div>
                                    </td>
                                 </tr>
@@ -544,13 +566,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                           })
                        ) : (
                           <tr>
-                             <td colSpan={4} className="px-8 py-12 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest">No active missions in the grid.</td>
+                             <td colSpan={5} className="px-8 py-12 text-center text-[10px] font-black text-slate-300 uppercase tracking-widest">No active missions in the grid.</td>
                           </tr>
                        )}
                     </tbody>
                  </table>
               </div>
            </div>
+  </div>
 
            <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-50">
@@ -593,7 +616,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                    )}
                                 </div>
                              </td>
-                             <td className="px-8 py-6 text-right font-black text-brand-green">₹{trip.incentive.toFixed(2)}</td>
+                             <td className="px-8 py-6 text-right font-black text-brand-green">₹{(Number(trip.incentive) || 0).toFixed(2)}</td>
                           </tr>
                        )) : (
                           <tr>
@@ -769,6 +792,46 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 </table>
              </div>
           </div>
+
+          <div className="mt-8 p-10 bg-brand-purple/5 rounded-[2.5rem] border border-brand-purple/10">
+             <div className="flex justify-between items-center mb-8">
+                <div>
+                   <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight">SMS Gateway Diagnostics</h3>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Verify live communication relay & OTP delivery nodes</p>
+                </div>
+                <div className="p-4 bg-white rounded-3xl shadow-sm border border-brand-purple/10">
+                   <Zap className="text-brand-purple" size={32} />
+                </div>
+             </div>
+             <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+                <div className="flex flex-col lg:flex-row gap-6 items-end">
+                   <div className="flex-1 w-full">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Target Mobile Node (E.164 Format)</label>
+                      <div className="relative">
+                         <Phone className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                         <input 
+                            type="tel" 
+                            placeholder="+91 98XXX XXXXX"
+                            value={testPhone}
+                            onChange={(e) => setTestPhone(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-100 p-5 pl-14 rounded-2xl outline-none focus:border-brand-purple transition-all font-black text-lg text-slate-900"
+                         />
+                      </div>
+                   </div>
+                   <button 
+                      onClick={handleTestNotifications}
+                      disabled={testLoading}
+                      className="w-full lg:w-fit bg-slate-900 text-white px-10 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl disabled:opacity-50"
+                   >
+                      {testLoading ? <RefreshCw size={20} className="animate-spin text-brand-purple" /> : <Send size={20} />}
+                      {testLoading ? 'Broadcasting...' : 'Trigger Gateway Test'}
+                   </button>
+                </div>
+                <p className="mt-4 text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                   <ShieldCheck size={12} className="text-brand-green" /> End-to-end encryption active for diagnostic packets
+                </p>
+             </div>
+          </div>
         </div>
       )}
 
@@ -781,7 +844,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
              </div>
              <div className="bg-white p-10 rounded-[2.5rem] border shadow-sm">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Incentives Disbursed</p>
-                <h3 className="text-5xl font-black text-orange-600 tracking-tighter">₹{filteredHistory.reduce((a, b) => a + b.incentive, 0).toLocaleString()}</h3>
+                <h3 className="text-5xl font-black text-orange-600 tracking-tighter">₹{filteredHistory.reduce((a, b) => a + (Number(b.incentive) || 0), 0).toLocaleString()}</h3>
              </div>
              <div className="bg-white p-10 rounded-[2.5rem] border shadow-sm">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Handovers</p>
@@ -827,7 +890,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                            <td className="px-6 py-4 text-sm font-black text-slate-900">{h.patientName}</td>
                            <td className="px-6 py-4 text-[11px] font-black text-brand-purple uppercase">{h.phleboName}</td>
                            <td className="px-6 py-4 text-sm font-black text-slate-900">₹{h.revenue}</td>
-                           <td className="px-6 py-4 text-sm font-black text-brand-green">₹{h.incentive.toFixed(0)}</td>
+                           <td className="px-6 py-4 text-sm font-black text-brand-green">₹{(Number(h.incentive) || 0).toFixed(0)}</td>
                            <td className="px-6 py-4 text-right">
                               <span className="text-[10px] font-black uppercase text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border">{h.paymentMode}</span>
                            </td>
@@ -1043,22 +1106,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 doc.setFontSize(12);
                                 doc.text(`ID: ${user.id}`, 14, 24);
                                 doc.text(`Grade: ${user.grade || 'N/A'}`, 14, 30);
-                                doc.text(`Monthly Earnings: $${user.monthlyEarnings.toFixed(2)}`, 14, 36);
+                                doc.text(`Monthly Earnings: $${(Number(user.monthlyEarnings) || 0).toFixed(2)}`, 14, 36);
                                 doc.text(`Completed Calls: ${user.completedCalls}`, 14, 42);
 
                                 (doc as any).autoTable({
                                   startY: 50,
                                   head: [['ID', 'Patient', 'Status', 'Collected At', 'TAT / Trip Time (Mins)', 'Km Traveled']],
                                   body: calls.map((c: any) => {
-                                    const tat = c.collectedAt && c.placedAt ? ((c.collectedAt - c.placedAt) / 60000).toFixed(2) : 'N/A';
-                                    const tripTime = c.collectedAt && c.acceptedAt ? ((c.collectedAt - c.acceptedAt) / 60000).toFixed(2) : 'N/A';
+                                    const tat = c.collectedAt && c.placedAt ? (Number((c.collectedAt - c.placedAt) / 60000)).toFixed(2) : 'N/A';
+                                    const tripTime = c.collectedAt && c.acceptedAt ? (Number((c.collectedAt - c.acceptedAt) / 60000)).toFixed(2) : 'N/A';
                                     return [
                                       c.id,
                                       c.patientName,
                                       c.status,
                                       c.collectedAt ? new Date(c.collectedAt).toLocaleString() : 'N/A',
                                       `${tat}\n${tripTime}`,
-                                      c.distance ? c.distance.toFixed(2) : 'N/A'
+                                      c.distance ? (Number(c.distance)).toFixed(2) : 'N/A'
                                     ];
                                   }),
                                 });
@@ -1295,7 +1358,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                  </div>
                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence (Meters)</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence Radius (Meters)</label>
                     <input required type="number" value={editingLab.geofenceRadiusMeters} onChange={e => setEditingLab({...editingLab, geofenceRadiusMeters: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-black" />
                  </div>
                  <div>

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { 
   LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink
@@ -137,9 +137,9 @@ const App: React.FC = () => {
   const [loginError, setLoginError] = useState('');
   const [activeRoute, setActiveRoute] = useState<MauiRoute>('FIELD');
   const [config, setConfig] = useState<SystemConfig>(INITIAL_CONFIG);
-  const [tests, setTests] = useState<DiagnosticTest[]>(MOCK_TESTS);
-  const [labs, setLabs] = useState<DiagnosticLab[]>(MOCK_LABS);
-  const [hospitals, setHospitals] = useState<Hospital[]>(MOCK_HOSPITALS);
+  const [tests, setTests] = useState<DiagnosticTest[]>([]);
+  const [labs, setLabs] = useState<DiagnosticLab[]>([]);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [calls, setCalls] = useState<CollectionCall[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [performanceHistory, setPerformanceHistory] = useState<CallMetrics[]>([]);
@@ -171,13 +171,14 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [callsRes, usersRes, metricsRes, configRes, labsRes, hospitalsRes] = await Promise.all([
+      const [callsRes, usersRes, metricsRes, configRes, labsRes, hospitalsRes, testsRes] = await Promise.all([
         fetch('/api/calls'),
         fetch('/api/users'),
         fetch('/api/metrics'),
         fetch('/api/config'),
         fetch('/api/labs'),
-        fetch('/api/hospitals')
+        fetch('/api/hospitals'),
+        fetch('/api/tests')
       ]);
       if (callsRes.ok) {
         const fetchedCalls = await callsRes.json();
@@ -201,6 +202,10 @@ const App: React.FC = () => {
       if (hospitalsRes.ok) {
         const fetchedHospitals = await hospitalsRes.json();
         if (fetchedHospitals && fetchedHospitals.length > 0) setHospitals(fetchedHospitals);
+      }
+      if (testsRes.ok) {
+        const fetchedTests = await testsRes.json();
+        if (fetchedTests && fetchedTests.length > 0) setTests(fetchedTests);
       }
     } catch (e) {
       console.error("Fetch error:", e);
@@ -335,6 +340,21 @@ const App: React.FC = () => {
 
 
   const handleResendOtp = useCallback(async (callId: string, isHandover: boolean = false) => {
+    if (currentUser && !['SYSTEM_ADMIN', 'ADMIN', 'RECEPTION', 'DEVELOPER'].includes(currentUser.role)) {
+       const call = calls.find(c => c.id === callId);
+       if (call) {
+          if (isHandover) {
+              alert("Only Admin/Dispatch can regenerate the authorisation (handover) PIN.");
+              return;
+          } else {
+              if (call.isOtpLocked || Date.now() > call.otpExpiresAt) {
+                  alert("This OTP is expired or locked. Only Admin/Dispatch has the authority to regenerate it.");
+                  return;
+              }
+          }
+       }
+    }
+
     const now = Date.now();
     const newPin = Math.floor(1000 + Math.random() * 9000).toString();
     const updates: any = isHandover ? {
@@ -358,13 +378,22 @@ const App: React.FC = () => {
         setToast({ message: `New PIN Generated for call ${callId.slice(-4)}`, type: 'info' });
       }
     } catch (e) {}
-  }, [currentUser]);
+  }, [currentUser, calls]);
 
   const updateCallStatus = async (callId: string, status: CallStatus, phleboId?: string, updates?: Partial<CollectionCall>) => {
     const update: any = { ...updates, status };
     if (status === CallStatus.ACCEPTED) {
       update.acceptedAt = Date.now();
       update.assignedPhleboId = phleboId;
+    }
+    if (status === CallStatus.PENDING) {
+      update.assignedPhleboId = null;
+      update.acceptedAt = null;
+      update.arrivedLocation = null;
+      update.visitPhoto = null;
+      update.samplePhoto = null;
+      update.sampleType = null;
+      update.voiceNote = null;
     }
     if (status === CallStatus.COLLECTED) {
       update.collectedAt = Date.now();
@@ -689,8 +718,84 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateUser = async (id: string, updates: Partial<Phlebotomist>) => {
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        setAllPhlebos(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+      }
+    } catch (e) {
+      console.error("Failed to update user:", e);
+    }
+  };
+
+  const handleRemovePhlebo = async (id: string) => {
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setAllPhlebos(prev => prev.filter(p => p.id !== id));
+        setToast({ message: "Staff record decommissioned", type: 'success' });
+      }
+    } catch (e) {
+      console.error("Failed to remove phlebo:", e);
+    }
+  };
+
+  const handleUpdateTests = async (newTests: DiagnosticTest[]) => {
+    try {
+      const res = await fetch('/api/tests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTests)
+      });
+      if (res.ok) {
+        setTests(newTests);
+        setToast({ message: "Service catalog synchronized", type: 'success' });
+      }
+    } catch (e) {
+      console.error("Failed to update tests:", e);
+    }
+  };
 
 
+
+
+  const visibleCalls = useMemo(() => {
+    if (!currentUser) return [];
+    if (['SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role)) return calls;
+    if (currentUser.labId) return calls.filter(c => c.labId === currentUser.labId);
+    return calls;
+  }, [calls, currentUser]);
+
+  const visiblePhlebos = useMemo(() => {
+    if (!currentUser) return [];
+    if (['SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role)) return allPhlebos;
+    if (currentUser.labId) return allPhlebos.filter(p => p.labId === currentUser.labId);
+    return allPhlebos;
+  }, [allPhlebos, currentUser]);
+
+  const visibleLabs = useMemo(() => {
+    if (!currentUser) return [];
+    if (['SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role)) return labs;
+    if (currentUser.labId) return labs.filter(l => l.id === currentUser.labId);
+    return labs;
+  }, [labs, currentUser]);
+
+  const visibleHistory = useMemo(() => {
+    if (!currentUser) return [];
+    if (['SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role)) return performanceHistory;
+    if (currentUser.labId) {
+       const labPhleboIds = new Set(visiblePhlebos.map(p => p.id));
+       return performanceHistory.filter(h => labPhleboIds.has(h.phleboId));
+    }
+    return performanceHistory;
+  }, [performanceHistory, currentUser, visiblePhlebos]);
 
   if (!isAuthenticated || !currentUser) {
     return (
@@ -807,11 +912,11 @@ const App: React.FC = () => {
         {activeRoute === 'FIELD' && (
           <PhleboApp 
             currentUser={currentUser} 
-            calls={calls} 
-            labs={labs}
+            calls={visibleCalls} 
+            labs={visibleLabs}
             appointments={appointments} 
             config={config} 
-            history={performanceHistory}
+            history={visibleHistory}
             tests={tests}
             onUpdateStatus={updateCallStatus} 
             onResendOtp={handleResendOtp}
@@ -832,13 +937,13 @@ const App: React.FC = () => {
         {activeRoute === 'DISPATCH' && (
           <Dashboard 
             currentUser={currentUser} 
-            calls={calls} 
+            calls={visibleCalls} 
             appointments={appointments} 
             config={config} 
-            labs={labs} 
+            labs={visibleLabs} 
             hospitals={hospitals} 
             tests={tests} 
-            phleboList={allPhlebos} 
+            phleboList={visiblePhlebos} 
             onCreateCall={handleCreateCall} 
             onUpdateStatus={updateCallStatus} 
             onResendOtp={handleResendOtp}
@@ -848,7 +953,7 @@ const App: React.FC = () => {
         {activeRoute === 'ADMIN' && (
           <AdminPanel 
             config={config} 
-            labs={labs}
+            labs={visibleLabs}
             tests={tests}
             hospitals={hospitals}
             onUpdateConfig={handleUpdateConfig} 
@@ -859,18 +964,19 @@ const App: React.FC = () => {
               if(a) handleRegisterPhlebo({...a, labId: lid});
             }}
             onUpdateLab={(l) => handleUpdateLabs(labs.map(lab => lab.id === l.id ? l : lab))}
-            history={performanceHistory} 
-            phleboList={allPhlebos}
-            activeCalls={calls}
+            history={visibleHistory} 
+            phleboList={visiblePhlebos}
+            activeCalls={visibleCalls}
             currentUser={currentUser}
-            onUpdateShift={(id, s, e) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, shiftStart: s, shiftEnd: e} : p))}
+            onUpdateShift={(id, s, e) => handleUpdateUser(id, { shiftStart: s, shiftEnd: e })}
             onRegisterPhlebo={handleRegisterPhlebo}
-            onRemovePhlebo={(id) => setAllPhlebos(prev => prev.filter(p => p.id !== id))}
-            onUpdateUserStatus={(id, s) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, status: s} : p))}
-            onUpdateTests={setTests}
+            onRemovePhlebo={handleRemovePhlebo}
+            onUpdateUserStatus={(id, s) => handleUpdateUser(id, { status: s })}
+            onUpdateTests={handleUpdateTests}
             onUpdateLabs={handleUpdateLabs}
             onUpdateHospitals={handleUpdateHospitals}
-            onUpdatePhleboRole={(id, r) => setAllPhlebos(prev => prev.map(p => p.id === id ? {...p, role: r} : p))}
+            onUpdatePhleboRole={(id, r) => handleUpdateUser(id, { role: r })}
+            onUpdateCallStatus={updateCallStatus}
           />
         )}
       </main>

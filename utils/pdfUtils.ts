@@ -70,7 +70,7 @@ export const generateBillPDF = (call: CollectionCall, lab: DiagnosticLab) => {
     index + 1,
     test.name,
     test.category,
-    `INR ${test.price.toFixed(2)}`
+    `INR ${(Number(test.price) || 0).toFixed(2)}`
   ]);
 
   doc.autoTable({
@@ -90,18 +90,18 @@ export const generateBillPDF = (call: CollectionCall, lab: DiagnosticLab) => {
   doc.setFontSize(10);
   doc.text('Subtotal:', 140, finalY + 15);
   doc.setFont('helvetica', 'normal');
-  doc.text(`INR ${call.billing.subTotal.toFixed(2)}`, 170, finalY + 15);
+  doc.text(`INR ${(Number(call.billing.subTotal) || 0).toFixed(2)}`, 170, finalY + 15);
 
   doc.setFont('helvetica', 'bold');
   doc.text('Visit Charge:', 140, finalY + 22);
   doc.setFont('helvetica', 'normal');
-  doc.text(`INR ${call.billing.collectionCharge.toFixed(2)}`, 170, finalY + 22);
+  doc.text(`INR ${(Number(call.billing.collectionCharge) || 0).toFixed(2)}`, 170, finalY + 22);
 
   doc.setFontSize(14);
   doc.setTextColor(brandPurple);
   doc.setFont('helvetica', 'bold');
   doc.text('GRAND TOTAL:', 130, finalY + 32);
-  doc.text(`INR ${call.billing.totalAmount.toFixed(2)}`, 170, finalY + 32);
+  doc.text(`INR ${(Number(call.billing.totalAmount) || 0).toFixed(2)}`, 170, finalY + 32);
 
   // Payment Status
   doc.setFontSize(10);
