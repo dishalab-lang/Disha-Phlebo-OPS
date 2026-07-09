@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SystemConfig, CallMetrics, Phlebotomist, CollectionCall, CallStatus, DiagnosticTest, UserStatus, DiagnosticLab, StaffRole, TatBracket, Hospital } from './types';
 import { 
   Settings, Zap, Save, Users, FlaskConical, Route, Clock, 
@@ -7,7 +7,7 @@ import {
   CheckCircle2, MapPin, Plus, Building2, Search, Timer, Radar, 
   Activity, X, UserPlus, Phone, ShieldAlert, Send, Home, UserCheck, Lock, Unlock,
   Truck, Target, Locate, TrendingUp, Sparkles, UserCircle, AlertCircle, Fingerprint, Shield,
-  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2, Key, RefreshCw
+  Globe, Server, AlertTriangle, Edit3, Trash, Calendar, Filter, Download, ChevronRight, BarChart3, PlusCircle, Printer, Mail, User as UserIcon, Hospital as HospitalIcon, Volume2, Key, RefreshCw, FileText, Copy, Check, Terminal
 } from 'lucide-react';
 
 import { GoogleGenAI } from '@google/genai';
@@ -15,6 +15,8 @@ import { GoogleGenAI } from '@google/genai';
 const SUPER_USER_ROLES: Set<StaffRole> = new Set(['ADMIN', 'SYSTEM_ADMIN', 'DEVELOPER']);
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import { googleSignIn, logout, getAccessToken } from './workspaceAuth';
+import { fetchContacts, uploadToDrive, listDriveFiles, listChatSpaces, GoogleContact } from './workspaceService';
 
 interface PerformanceReport {
   grade: 'A' | 'B' | 'C' | 'D';
@@ -74,20 +76,27 @@ interface AdminPanelProps {
   onUpdateHospitals: (hospitals: Hospital[]) => void;
   onUpdatePhleboRole: (id: string, role: StaffRole) => void;
   onUpdateCallStatus: (id: string, status: CallStatus, phleboId?: string) => void;
+  onUpdateUser?: (id: string, updates: Partial<Phlebotomist>) => void;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
   config, labs, hospitals, onUpdateConfig, onRegisterLab, onUpdateLab, history, 
   phleboList, activeCalls, currentUser, tests, onUpdateShift, 
-  onRegisterPhlebo, onRemovePhlebo, onUpdateUserStatus, onUpdateTests, onUpdateLabs, onUpdateHospitals, onUpdatePhleboRole, onUpdateCallStatus
+  onRegisterPhlebo, onRemovePhlebo, onUpdateUserStatus, onUpdateTests, onUpdateLabs, onUpdateHospitals, onUpdatePhleboRole, onUpdateCallStatus,
+  onUpdateUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG' | 'PERFORMANCE'>('FLEET');
+  const [activeTab, setActiveTab] = useState<'FLEET' | 'ROSTER' | 'TRIPS' | 'CATALOG' | 'INFRA' | 'HOSPITALS' | 'FINANCE' | 'CONFIG' | 'PERFORMANCE' | 'WORKSPACE'>('FLEET');
   const [editedConfig, setEditedConfig] = useState(config);
   const [performanceReports, setPerformanceReports] = useState<Record<string, PerformanceReport>>({});
+
+  useEffect(() => {
+    setEditedConfig(config);
+  }, [config]);
   const [dbConfigData, setDbConfigData] = useState<string | null>(null);
   const [testEmail, setTestEmail] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [testLoading, setTestLoading] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Phlebotomist | null>(null);
   const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,7 +208,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     role: 'EMPLOYEE' as StaffRole, 
     labId: labs[0]?.id || '',
     shiftStart: '09:00', 
-    shiftEnd: '18:00' 
+    shiftEnd: '18:00',
+    username: '',
+    password: '123'
   };
   const [newStaff, setNewStaff] = useState<Partial<Phlebotomist>>(initialStaffState);
   const [newTest, setNewTest] = useState<Partial<DiagnosticTest>>({ name: '', category: 'Pathology', price: 0 });
@@ -223,6 +234,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     onRegisterPhlebo({ ...newStaff, age: Number(newStaff.age) });
     setIsRegisteringStaff(false);
     setNewStaff(initialStaffState);
+  };
+
+  const handleUpdateStaff = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStaff) return;
+    if (onUpdateUser) {
+      onUpdateUser(editingStaff.id, { 
+        name: editingStaff.name,
+        phone: editingStaff.phone,
+        email: editingStaff.email,
+        aadhaar: editingStaff.aadhaar,
+        age: Number(editingStaff.age),
+        sex: editingStaff.sex,
+        role: editingStaff.role,
+        labId: editingStaff.labId,
+        shiftStart: editingStaff.shiftStart,
+        shiftEnd: editingStaff.shiftEnd,
+        username: editingStaff.username,
+        password: editingStaff.password
+      });
+    } else {
+      onUpdateShift(editingStaff.id, editingStaff.shiftStart, editingStaff.shiftEnd);
+      onUpdatePhleboRole(editingStaff.id, editingStaff.role);
+    }
+    setEditingStaff(null);
   };
 
   const handleAddTest = (e: React.FormEvent) => {
@@ -365,6 +401,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         <NavBtn label="Hospitals" tab="HOSPITALS" icon={HospitalIcon} />
         <NavBtn label="Ledger" tab="FINANCE" icon={IndianRupee} />
         <NavBtn label="Performance" tab="PERFORMANCE" icon={BarChart3} />
+        <NavBtn label="Workspace" tab="WORKSPACE" icon={Globe} />
         <NavBtn label="Config" tab="CONFIG" icon={Settings} />
       </div>
 
@@ -453,7 +490,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 </span>
                             </td>
                             <td className="px-8 py-6 text-right space-x-2">
-                                <button onClick={() => onUpdateUserStatus(p.id, p.status === 'APPROVED' ? 'LOCKED' : 'APPROVED')} className={`p-3 rounded-xl transition-all ${p.status === 'APPROVED' ? 'text-red-400 hover:bg-red-50' : 'text-brand-green hover:bg-green-50'}`}>
+                                <button onClick={() => setEditingStaff(p)} className="p-3 text-brand-purple hover:bg-brand-purple/5 rounded-xl transition-all inline-flex items-center justify-center mr-1" title="Edit Staff Profile"><Edit3 size={18} /></button>
+                                 <button onClick={() => onUpdateUserStatus(p.id, p.status === 'APPROVED' ? 'LOCKED' : 'APPROVED')} className={`p-3 rounded-xl transition-all ${p.status === 'APPROVED' ? 'text-red-400 hover:bg-red-50' : 'text-brand-green hover:bg-green-50'}`}>
                                   {p.status === 'APPROVED' ? <Lock size={18} /> : <Unlock size={18} />}
                                 </button>
                                 {canEditSettings && p.id !== currentUser.id && !SUPER_USER_ROLES.has(p.role) && (
@@ -908,9 +946,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
+      {activeTab === 'WORKSPACE' && <WorkspaceTab />}
+
       {activeTab === 'CONFIG' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-slide-up">
-          {canEditSettings ? (
+        <div className="space-y-8 animate-slide-up">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {canEditSettings ? (
             <>
               <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> Enterprise Standards</h3>
@@ -962,6 +1003,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                       </pre>
                     </div>
                   )}
+                </div>
+
+                <div className="mt-12 pt-12 border-t border-slate-100">
+                   <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> SMS Gateway (Fast2SMS API)</h3>
+                   <div className="space-y-6 mb-12">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Fast2SMS API Key</label>
+                            <input type="text" value={editedConfig.fast2smsApiKey || ''} onChange={e => setEditedConfig({...editedConfig, fast2smsApiKey: e.target.value})} placeholder="Your Fast2SMS API Key" className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none font-mono text-sm" />
+                         </div>
+                         <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Fast2SMS Route</label>
+                            <input type="text" value={editedConfig.fast2smsRoute || ''} onChange={e => setEditedConfig({...editedConfig, fast2smsRoute: e.target.value})} placeholder="e.g. q or otp" className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-900 outline-none font-mono text-sm" />
+                         </div>
+                      </div>
+                   </div>
                 </div>
 
                 <div className="mt-12 pt-12 border-t border-slate-100">
@@ -1041,6 +1098,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 <p className="text-sm text-slate-500 mt-2">You do not have sufficient privileges to modify system settings.</p>
             </div>
           )}
+          </div>
+          {canEditSettings && <WindowsPackagingSection />}
         </div>
       )}
 
@@ -1182,7 +1241,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><UserIcon size={12}/> Full Name</label>
-                       <input required value={newStaff.name} onChange={e => setNewStaff({...newStaff, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                       <input required value={newStaff.name} onChange={e => {
+                          const val = e.target.value;
+                          const genUser = val.toLowerCase().replace(/\s+/g, '');
+                          setNewStaff(prev => ({
+                            ...prev,
+                            name: val,
+                            username: (!prev.username || prev.username === (prev.name || '').toLowerCase().replace(/\s+/g, '')) ? genUser : prev.username
+                          }));
+                        }} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
                     </div>
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Phone size={12}/> Mobile Node</label>
@@ -1211,10 +1278,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div>
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Shield size={12}/> Enterprise Role</label>
                        <select required value={newStaff.role} onChange={e => setNewStaff({...newStaff, role: e.target.value as StaffRole})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 appearance-none">
-                          <option value="EMPLOYEE">Field Phlebotomist</option>
-                          <option value="RECEPTION">Reception / Dispatch</option>
-                          <option value="ADMIN">Lab Administrator</option>
-                          <option value="ACCOUNT">Accountant</option>
+                           <option value="EMPLOYEE">Field Phlebotomist</option>
+                           <option value="RECEPTION">Reception / Dispatch</option>
+                           <option value="ADMIN">Lab Administrator</option>
+                           <option value="ACCOUNT">Accountant</option>
+                           <option value="DEVELOPER">Developer</option>
+                           <option value="SYSTEM_ADMIN">System Admin</option>
                        </select>
                     </div>
                     <div>
@@ -1232,14 +1301,100 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift End</label>
                        <input required type="time" value={newStaff.shiftEnd} onChange={e => setNewStaff({...newStaff, shiftEnd: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
                     </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Key size={12}/> Account Username <span className="text-slate-400 normal-case">(Login ID)</span></label>
+                       <input required value={newStaff.username || ''} onChange={e => setNewStaff({...newStaff, username: e.target.value})} className="w-full p-4 bg-slate-50 border border-brand-purple/20 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 focus:bg-white" placeholder="Login account/username" />
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Lock size={12}/> Access Key <span className="text-slate-400 normal-case">(Password)</span></label>
+                       <input required type="text" value={newStaff.password || ''} onChange={e => setNewStaff({...newStaff, password: e.target.value})} className="w-full p-4 bg-slate-50 border border-brand-purple/20 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 focus:bg-white" placeholder="Login password" />
+                    </div>
                  </div>
                  <button type="submit" className="w-full bg-brand-green text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all mt-4">Complete Onboarding</button>
-              </form>
-           </div>
-        </div>
-      )}
+               </form>
+            </div>
+         </div>
+       )}
 
-      {isAddingHospital && (
+       {editingStaff && (
+         <div className="fixed inset-0 bg-brand-purple/40 backdrop-blur-md z-[500] flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden animate-slide-up flex flex-col max-h-[90vh]">
+               <div className="p-10 bg-brand-purple text-white flex justify-between items-center sticky top-0 z-10">
+                  <h3 className="text-xl font-black uppercase tracking-widest">Edit Personnel Profile</h3>
+                  <button onClick={() => setEditingStaff(null)} className="bg-white/10 p-2 rounded-xl"><X /></button>
+               </div>
+               <form onSubmit={handleUpdateStaff} className="p-10 space-y-6 overflow-y-auto no-scrollbar flex-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><UserIcon size={12}/> Full Name</label>
+                        <input required value={editingStaff.name} onChange={e => setEditingStaff({...editingStaff, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Phone size={12}/> Mobile Node</label>
+                        <input required type="tel" value={editingStaff.phone} onChange={e => setEditingStaff({...editingStaff, phone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Mail size={12}/> Email Address</label>
+                        <input required type="email" value={editingStaff.email} onChange={e => setEditingStaff({...editingStaff, email: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Fingerprint size={12}/> Aadhaar ID</label>
+                        <input required value={editingStaff.aadhaar} onChange={e => setEditingStaff({...editingStaff, aadhaar: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Age</label>
+                        <input required type="number" value={editingStaff.age} onChange={e => setEditingStaff({...editingStaff, age: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Sex</label>
+                        <select required value={editingStaff.sex} onChange={e => setEditingStaff({...editingStaff, sex: e.target.value as any})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 appearance-none">
+                           <option value="MALE">Male</option>
+                           <option value="FEMALE">Female</option>
+                           <option value="OTHER">Other</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Shield size={12}/> Enterprise Role</label>
+                        <select required value={editingStaff.role} onChange={e => setEditingStaff({...editingStaff, role: e.target.value as StaffRole})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 appearance-none">
+                           <option value="EMPLOYEE">Field Phlebotomist</option>
+                           <option value="RECEPTION">Reception / Dispatch</option>
+                           <option value="ADMIN">Lab Administrator</option>
+                           <option value="ACCOUNT">Accountant</option>
+                           <option value="DEVELOPER">Developer</option>
+                           <option value="SYSTEM_ADMIN">System Admin</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Building2 size={12}/> Assigned Hub</label>
+                        <select required value={editingStaff.labId} onChange={e => setEditingStaff({...editingStaff, labId: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 appearance-none">
+                           <option value="">Select Lab Node</option>
+                           {labs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift Start</label>
+                        <input required type="time" value={editingStaff.shiftStart} onChange={e => setEditingStaff({...editingStaff, shiftStart: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift End</label>
+                        <input required type="time" value={editingStaff.shiftEnd} onChange={e => setEditingStaff({...editingStaff, shiftEnd: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Key size={12}/> Account Username <span className="text-slate-400 normal-case">(Login ID)</span></label>
+                        <input required value={editingStaff.username || ''} onChange={e => setEditingStaff({...editingStaff, username: e.target.value})} className="w-full p-4 bg-slate-50 border border-brand-purple/20 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 focus:bg-white" placeholder="Login account/username" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block flex items-center gap-2"><Lock size={12}/> Access Key <span className="text-slate-400 normal-case">(Password)</span></label>
+                        <input required type="text" value={editingStaff.password || ''} onChange={e => setEditingStaff({...editingStaff, password: e.target.value})} className="w-full p-4 bg-slate-50 border border-brand-purple/20 rounded-2xl font-bold outline-none focus:ring-2 ring-brand-purple/20 focus:bg-white" placeholder="Login password" />
+                     </div>
+                  </div>
+                  <button type="submit" className="w-full bg-brand-green text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-[1.02] active:scale-95 transition-all mt-4">Save Profile Changes</button>
+               </form>
+            </div>
+         </div>
+       )}
+
+       {isAddingHospital && (
         <div className="fixed inset-0 bg-brand-green/40 backdrop-blur-md z-[500] flex items-center justify-center p-6">
            <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden animate-slide-up">
               <div className="p-10 bg-brand-green text-white flex justify-between items-center">
@@ -1396,6 +1551,311 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
            </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const WorkspaceTab: React.FC = () => {
+  const [user, setUser] = useState<any>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<GoogleContact[]>([]);
+  const [driveFiles, setDriveFiles] = useState<any[]>([]);
+  const [chatSpaces, setChatSpaces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setUser(result.user);
+        setAccessToken(result.accessToken);
+        await loadWorkspaceData(result.accessToken);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign in');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await logout();
+    setUser(null);
+    setAccessToken(null);
+    setContacts([]);
+    setDriveFiles([]);
+    setChatSpaces([]);
+  };
+
+  const loadWorkspaceData = async (token: string) => {
+    try {
+      const [fetchedContacts, fetchedFiles, fetchedSpaces] = await Promise.all([
+        fetchContacts(token).catch(e => { console.error(e); return []; }),
+        listDriveFiles(token).catch(e => { console.error(e); return []; }),
+        listChatSpaces(token).catch(e => { console.error(e); return []; })
+      ]);
+      setContacts(fetchedContacts);
+      setDriveFiles(fetchedFiles);
+      setChatSpaces(fetchedSpaces);
+    } catch (err) {
+      console.error('Error loading workspace data:', err);
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+        <div className="flex justify-between items-center">
+          <div>
+            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Google Workspace Integration</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Connect your hospital workspace (Contacts, Drive, Chat)</p>
+          </div>
+          {!user ? (
+            <button 
+              onClick={handleSignIn} 
+              disabled={loading}
+              className="gsi-material-button shadow-md"
+            >
+              <div className="gsi-material-button-state"></div>
+              <div className="gsi-material-button-content-wrapper">
+                <div className="gsi-material-button-icon">
+                  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: 'block' }}>
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                    <path fill="none" d="M0 0h48v48H0z"></path>
+                  </svg>
+                </div>
+                <span className="gsi-material-button-contents">{loading ? 'Connecting...' : 'Sign in with Google'}</span>
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-xs font-black text-slate-900">{user.displayName}</p>
+                <p className="text-[10px] font-bold text-slate-400">{user.email}</p>
+              </div>
+              <button 
+                onClick={handleSignOut} 
+                className="text-red-500 text-[10px] font-black uppercase tracking-widest hover:underline"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex items-center gap-3 text-red-600">
+          <AlertCircle size={18} />
+          <p className="text-xs font-bold">{error}</p>
+        </div>
+      )}
+
+      {user && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Contacts Section */}
+          <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-blue-50/30">
+              <h4 className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] flex items-center gap-2">
+                <Users size={14} /> Contacts ({contacts.length})
+              </h4>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+              {contacts.length > 0 ? contacts.map((c, i) => (
+                <div key={i} className="p-3 bg-slate-50 rounded-2xl border flex items-center gap-3 hover:border-blue-200 transition-all">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-black text-xs">
+                    {c.name[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black text-slate-900 truncate">{c.name}</p>
+                    <p className="text-[10px] font-bold text-slate-400 truncate">{c.email || c.phone || 'No contact info'}</p>
+                  </div>
+                </div>
+              )) : (
+                <div className="h-full flex items-center justify-center text-slate-300 text-[10px] font-black uppercase tracking-widest">
+                  No contacts synced
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Drive Section */}
+          <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-brand-green/5">
+              <h4 className="text-[10px] font-black text-brand-green uppercase tracking-[0.2em] flex items-center gap-2">
+                <Database size={14} /> Drive Assets ({driveFiles.length})
+              </h4>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+              {driveFiles.length > 0 ? driveFiles.map((f, i) => (
+                <div key={i} className="p-3 bg-slate-50 rounded-2xl border flex items-center gap-3 hover:border-brand-green/20 transition-all">
+                  <div className="p-2 bg-brand-green/10 text-brand-green rounded-lg">
+                    <FileText size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black text-slate-900 truncate">{f.name}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{f.mimeType.split('/').pop()}</p>
+                  </div>
+                </div>
+              )) : (
+                <div className="h-full flex items-center justify-center text-slate-300 text-[10px] font-black uppercase tracking-widest">
+                  No files found
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-slate-50 border-t">
+              <button 
+                onClick={async () => {
+                  try {
+                    const id = await uploadToDrive(accessToken!, 'Disha_Diagnostics_Sync.txt', `Sync logic initialized at ${new Date().toISOString()}`);
+                    alert(`Sync file created in Drive! ID: ${id}`);
+                    loadWorkspaceData(accessToken!);
+                  } catch (e: any) {
+                    alert('Upload failed: ' + e.message);
+                  }
+                }}
+                disabled={!accessToken}
+                className="w-full py-3 bg-brand-green text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-green/90 transition-all flex items-center justify-center gap-2"
+              >
+                <Plus size={14} /> New Record Node
+              </button>
+            </div>
+          </div>
+
+          {/* Chat Section */}
+          <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden flex flex-col h-[500px]">
+            <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-brand-purple/5">
+              <h4 className="text-[10px] font-black text-brand-purple uppercase tracking-[0.2em] flex items-center gap-2">
+                <Target size={14} /> Chat Spaces ({chatSpaces.length})
+              </h4>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+              {chatSpaces.length > 0 ? chatSpaces.map((s, i) => (
+                <div key={i} className="p-3 bg-slate-50 rounded-2xl border flex items-center gap-3 hover:border-brand-purple/20 transition-all">
+                  <div className="p-2 bg-brand-purple/10 text-brand-purple rounded-lg">
+                    <Globe size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black text-slate-900 truncate">{s.displayName || 'Unnamed Space'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 truncate">{s.name}</p>
+                  </div>
+                </div>
+              )) : (
+                <div className="h-full flex items-center justify-center text-slate-300 text-[10px] font-black uppercase tracking-widest">
+                  No active spaces
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-slate-50 border-t text-center">
+              <p className="text-[9px] font-black text-slate-400 uppercase leading-relaxed">
+                Connect your medical teams <br/> via automated Chat spaces.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const WindowsPackagingSection: React.FC = () => {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, fieldName: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(fieldName);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const packageSpecs = [
+    { label: 'Package Identity Name', value: 'DishaDiagnostics.PhlebotomySuite', desc: 'Used in your appxmanifest Identity block.' },
+    { label: 'Publisher Common Name (CN)', value: 'CN=DishaDiagnosticsPhlebotomySuite, O="Disha Diagnostics Private Limited", L=Bengaluru, S=Karnataka, C=IN', desc: 'Distinguished name required on code-signing certificate.' },
+    { label: 'Publisher Store ID (GUID)', value: 'CN=9C8E764A-DFDF-4B44-A614-72218D149D0C', desc: 'Unique developer profile UUID assigned for MSIX packaging.' },
+    { label: 'Application User Model ID (AUMID)', value: 'DishaDiagnostics.PhlebotomySuite!App', desc: 'System identifier for notifications, taskbar grouping, and shortcuts.' }
+  ];
+
+  return (
+    <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm mt-8 animate-slide-up">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3 uppercase tracking-tight">
+            <ShieldCheck className="text-brand-purple" /> Windows Packaging & Publisher Specifications
+          </h3>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+            Registered credentials for building MSIX installers & Microsoft Store publishing
+          </p>
+        </div>
+        <div className="bg-brand-purple/5 text-brand-purple font-mono text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-full border border-brand-purple/10">
+          Target Platform: Win32-x64
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        {packageSpecs.map((spec) => (
+          <div key={spec.label} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col justify-between relative group hover:border-brand-purple/20 transition-all">
+            <div>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block">
+                {spec.label}
+              </span>
+              <p className="text-xs font-black text-slate-800 break-all select-all font-mono">
+                {spec.value}
+              </p>
+            </div>
+            <div className="mt-4 flex justify-between items-center bg-transparent pt-3 border-t border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400">
+                {spec.desc}
+              </span>
+              <button
+                onClick={() => copyToClipboard(spec.value, spec.label)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border rounded-lg text-xs font-bold text-slate-600 hover:text-brand-purple hover:border-brand-purple/30 transition-all shadow-sm"
+              >
+                {copiedField === spec.label ? (
+                  <>
+                    <Check size={12} className="text-brand-green" />
+                    <span className="text-brand-green font-black">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 text-white">
+            <Terminal size={16} className="text-brand-purple" />
+            <h4 className="font-mono text-xs font-bold uppercase tracking-widest">PowerShell Self-Signed Certificate Setup</h4>
+          </div>
+          <span className="text-[8px] font-mono text-slate-500 font-bold uppercase tracking-widest">run as administrator cmd</span>
+        </div>
+        <p className="text-xs text-slate-400 mb-4 font-normal leading-relaxed">
+          Windows MSIX packages strictly require that the signature's Publisher name matches the package manifest publisher exactly. Run this PowerShell command locally to generate and automatically trust the testing certificate:
+        </p>
+        <div className="relative">
+          <pre className="text-brand-green font-mono text-[11px] bg-slate-950/50 p-4 rounded-xl overflow-x-auto border border-slate-800/80 leading-relaxed pr-16 select-all">
+            {`$Cert = New-SelfSignedCertificate -Type Custom -Subject "CN=DishaDiagnosticsPhlebotomySuite" -KeySpec Signature -KeyExportPolicy Exportable -KeyUsage DigitalSignature -ExtendedKeyUsage "1.3.6.1.5.5.7.3.3" -CertStoreLocation "Cert:\\LocalMachine\\My" -NotAfter (Get-Date).AddYears(5)\n[System.IO.File]::WriteAllBytes("$PSScriptRoot\\DishaDiagnosticsPhlebotomy.pfx", $Cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))`}
+          </pre>
+          <button 
+            onClick={() => copyToClipboard(`$Cert = New-SelfSignedCertificate -Type Custom -Subject "CN=DishaDiagnosticsPhlebotomySuite" -KeySpec Signature -KeyExportPolicy Exportable -KeyUsage DigitalSignature -ExtendedKeyUsage "1.3.6.1.5.5.7.3.3" -CertStoreLocation "Cert:\\LocalMachine\\My" -NotAfter (Get-Date).AddYears(5)\n[System.IO.File]::WriteAllBytes("$PSScriptRoot\\DishaDiagnosticsPhlebotomy.pfx", $Cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))`, 'ps_command')}
+            className="absolute top-3 right-3 p-2 bg-slate-900 text-slate-400 hover:text-white rounded-lg border border-slate-800 transition-all hover:border-brand-purple/40"
+            title="Copy command"
+          >
+            {copiedField === 'ps_command' ? <Check size={14} className="text-brand-green" /> : <Copy size={14} />}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

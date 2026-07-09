@@ -45,7 +45,7 @@ export const MOCK_TESTS: DiagnosticTest[] = [
 ];
 
 export const MOCK_LABS: DiagnosticLab[] = [
-  { id: 'LAB01', name: 'Disha Main lab HUB', email: 'PHLEBO.DISHA@GMAIL.COM', location: { lat: 17.6849, lng: 73.9924, address: 'Satara, Maharashtra' }, geofenceRadiusMeters: 10000 },
+  { id: 'LAB01', name: 'Disha Main lab HUB', email: 'PHLEBO.DISHA@GMAIL.COM', location: { lat: 17.684942, lng: 73.998142, address: 'Satara, Maharashtra' }, geofenceRadiusMeters: 10000 },
 ];
 
 export const MOCK_HOSPITALS: Hospital[] = [

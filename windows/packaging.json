@@ -1,0 +1,33 @@
+{
+  "Identity": {
+    "Name": "DishaDiagnostics.PhlebotomySuite",
+    "Publisher": "CN=DishaDiagnosticsPhlebotomySuite, O=\"Disha Diagnostics Private Limited\", L=Bengaluru, S=Karnataka, C=IN",
+    "PublisherId": "CN=9C8E764A-DFDF-4B44-A614-72218D149D0C",
+    "ProcessorArchitecture": "x64",
+    "Version": "1.0.0.0"
+  },
+  "Properties": {
+    "DisplayName": "Disha Diagnostics Phlebotomy Suite",
+    "PublisherDisplayName": "Disha Diagnostics Private Limited",
+    "Logo": "Assets\\StoreLogo.png",
+    "Description": "A robust full-stack desktop dashboard for managing phlebotomists, collecting diagnostic orders, tracking TAT, and monitoring real-time logistics."
+  },
+  "Applications": {
+    "Application": {
+      "Id": "App",
+      "Executable": "DishaDiagnosticsPhlebotomySuite.exe",
+      "EntryPoint": "Windows.FullTrustApplication",
+      "DisplayName": "Disha Diagnostics Phlebotomy Suite",
+      "Description": "Disha Diagnostics Phlebotomy Suite",
+      "VisualElements": {
+        "DisplayName": "Disha Diagnostics Phlebotomy Suite",
+        "Description": "Disha Diagnostics Phlebotomy Suite",
+        "BackgroundColor": "#5F259F",
+        "Square150x150Logo": "Assets\\Square150x150Logo.png",
+        "Square44x44Logo": "Assets\\Square44x44Logo.png"
+      }
+    }
+  },
+  "AUMID": "DishaDiagnostics.PhlebotomySuite!App",
+  "AppxManifest_Template": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Package xmlns=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10\" xmlns:uap=\"http://schemas.microsoft.com/appx/manifest/uap/windows10\" IgnorableNamespaces=\"uap\">\n  <Identity Name=\"DishaDiagnostics.PhlebotomySuite\" Publisher=\"CN=DishaDiagnosticsPhlebotomySuite, O=&quot;Disha Diagnostics Private Limited&quot;, L=Bengaluru, S=Karnataka, C=IN\" Version=\"1.0.0.0\" ProcessorArchitecture=\"x64\" />\n  <Properties>\n    <DisplayName>Disha Diagnostics Phlebotomy Suite</DisplayName>\n    <PublisherDisplayName>Disha Diagnostics Private Limited</PublisherDisplayName>\n    <Logo>Assets\\StoreLogo.png</Logo>\n  </Properties>\n  <Resources>\n    <Resource Language=\"en-us\" />\n  </Resources>\n  <Dependencies>\n    <TargetDeviceFamily Name=\"Windows.Universal\" MinVersion=\"10.0.17763.0\" MaxVersionTested=\"10.0.22000.0\" />\n  </Dependencies>\n  <Capabilities>\n    <Capability Name=\"internetClient\" />\n    <rescap:Capability Name=\"runFullTrust\" xmlns:rescap=\"http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities\" />\n  </Capabilities>\n</Package>"
+}

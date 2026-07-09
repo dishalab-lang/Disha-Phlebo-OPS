@@ -1,51 +1,60 @@
+import { dbHelper } from './dbHelper.ts';
+
 /**
  * Exotel SMS Service
  * Integrates with Exotel API to send SMS notifications.
  */
+export async function sendSMS(to: string, body: string, customRoute?: string) {
+  let smsConfig: any = {};
+  try {
+    const savedConfigStr = dbHelper.getConfig();
+    if (savedConfigStr) {
+      smsConfig = JSON.parse(savedConfigStr);
+    }
+  } catch (err) {
+    console.error("Failed to read SMS config from Database:", err);
+  }
 
-export async function sendSMS(to: string, body: string) {
-  const apiKey = process.env.EXOTEL_API_KEY || '7667487e930b072f66225a9152d90024036c04e484c4909a';
-  const apiToken = process.env.EXOTEL_API_TOKEN || '02715f2d1f0461f9bcd905f16ae0d46eef027d6497a5ea9c';
-  const accountSid = process.env.EXOTEL_ACCOUNT_SID || 'dishadiagnostics1';
-  const subdomain = process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com';
-  const senderId = process.env.EXOTEL_SENDER_ID || 'DISHAD'; // Default Sender ID
+  const apiKey = smsConfig.fast2smsApiKey || process.env.FAST2SMS_API_KEY;
+  const route = customRoute || smsConfig.fast2smsRoute || process.env.FAST2SMS_ROUTE || 'q';
 
-  if (!apiKey || !apiToken || !accountSid) {
-    console.warn('Exotel credentials not fully configured. SMS sending will be disabled.');
+  if (!apiKey) {
+    console.warn('Fast2SMS credentials not configured. SMS sending will be disabled.');
     return null;
   }
 
-  // Exotel API endpoint for sending SMS
-  // URL format: https://<api_key>:<api_token>@<subdomain>/v1/Accounts/<account_sid>/Sms/send.json
-  const url = `https://${subdomain}/v1/Accounts/${accountSid}/Sms/send.json`;
+  const url = 'https://www.fast2sms.com/dev/bulkV2';
 
   try {
-    const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
-    
-    const params = new URLSearchParams();
-    params.append('From', senderId);
-    params.append('To', to);
-    params.append('Body', body);
+    const payload = {
+        authorization: apiKey,
+        variables_values: body, // Assuming body is the content to be sent
+        route: route,
+        numbers: to,
+        flash: 0
+    };
+
+    console.log(`Sending SMS to ${to} via Fast2SMS. Route: ${route}`);
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'authorization': apiKey,
+        'Content-Type': 'application/json'
       },
-      body: params.toString()
+      body: JSON.stringify(payload)
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(`Exotel API error: ${data.RestResponse?.Errors?.Message || response.statusText}`);
+    if (!response.ok || data.return === false) {
+      throw new Error(`Fast2SMS API error: ${data.message || JSON.stringify(data)}`);
     }
 
-    console.log('SMS sent via Exotel: %s', data.RestResponse?.SmsMessage?.Sid);
+    console.log('SMS sent successfully via Fast2SMS. Request ID: %s', data.request_id);
     return data;
   } catch (error) {
-    // console.error('Error sending SMS via Exotel:', error); // Muted to prevent spam
+    console.error('Error sending SMS via Fast2SMS:', error);
     return { error: error instanceof Error ? error.message : String(error) };
   }
 }

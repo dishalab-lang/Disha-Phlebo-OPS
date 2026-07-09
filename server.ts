@@ -1,3 +1,6 @@
+import * as dotenv from 'dotenv';
+dotenv.config({ override: true } as any);
+
 import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
@@ -19,7 +22,8 @@ const db = {
   labs: dbHelper.getLabs(),
   hospitals: dbHelper.getHospitals(),
   logs: dbHelper.getLogs(),
-  tests: dbHelper.getTests()
+  tests: dbHelper.getTests(),
+  emergencies: [] as any[]
 };
 
 // Initialize with mock data if empty
@@ -28,23 +32,37 @@ if (db.tests.length === 0) {
   dbHelper.setTests(MOCK_TESTS);
 }
 
-// Always update with mock data on startup to ensure location changes (like Satara) take effect
-MOCK_LABS.forEach(l => {
-  db.labs.set(l.id, l);
-  dbHelper.setLab(l.id, l);
-});
+// Populate with mock data ONLY if the database is currently empty
+if (db.labs.size === 0) {
+  MOCK_LABS.forEach(l => {
+    db.labs.set(l.id, l);
+    dbHelper.setLab(l.id, l);
+  });
+} else {
+  // Sync location updates to database
+  MOCK_LABS.forEach(l => {
+    const existing = db.labs.get(l.id);
+    if (existing) {
+      existing.location = l.location;
+      db.labs.set(l.id, existing);
+      dbHelper.setLab(l.id, existing);
+    }
+  });
+}
 
-MOCK_HOSPITALS.forEach(h => {
-  const data = {
-    id: h.id,
-    name: h.name,
-    address: h.address || null,
-    lat: h.lat || 0,
-    lng: h.lng || 0
-  };
-  db.hospitals.set(h.id, data);
-  dbHelper.setHospital(h.id, data);
-});
+if (db.hospitals.size === 0) {
+  MOCK_HOSPITALS.forEach(h => {
+    const data = {
+      id: h.id,
+      name: h.name,
+      address: h.address || null,
+      lat: h.lat || 0,
+      lng: h.lng || 0
+    };
+    db.hospitals.set(h.id, data);
+    dbHelper.setHospital(h.id, data);
+  });
+}
 
 if (db.users.size === 0) {
   // Default Admin User
@@ -87,8 +105,8 @@ if (!dbHelper.getConfig()) {
 }
 // --- End In-Memory Data Store ---
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filenamePath = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : '';
+const __dirnamePath = typeof import.meta !== 'undefined' && import.meta.url ? dirname(__filenamePath) : '';
 
 let aiClient: any = null;
 function getAI() {
@@ -248,25 +266,39 @@ async function startServer() {
 
     if (email) {
       try {
-        results.email = await sendEmail(
+        const mailRes = await sendEmail(
           email,
           "Test Notification - Disha Diagnostics",
           "This is a test email from Disha Diagnostics Phlebotomy Suite.",
           "<h3>Test Notification</h3><p>This is a test email from <b>Disha Diagnostics Phlebotomy Suite</b>.</p>"
         );
+        if (mailRes && (mailRes as any).error) {
+          results.email = { success: false, error: (mailRes as any).error };
+        } else if (mailRes) {
+          results.email = { success: true, details: mailRes };
+        } else {
+          results.email = { success: false, error: "SMTP not configured or credentials invalid" };
+        }
       } catch (error) {
-        results.email = { error: error instanceof Error ? error.message : String(error) };
+        results.email = { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     }
 
     if (phone) {
       try {
-        results.sms = await sendSMS(
+        const smsRes = await sendSMS(
           phone,
           "Test SMS from Disha Diagnostics. If you receive this, your SMS integration is working correctly."
         );
+        if (smsRes && (smsRes as any).error) {
+          results.sms = { success: false, error: (smsRes as any).error };
+        } else if (smsRes) {
+          results.sms = { success: true, details: smsRes };
+        } else {
+          results.sms = { success: false, error: "Exotel SMS credentials not configured" };
+        }
       } catch (error) {
-        results.sms = { error: error instanceof Error ? error.message : String(error) };
+        results.sms = { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     }
 
@@ -928,6 +960,78 @@ async function startServer() {
     res.json({ success: true, user, calls });
   });
 
+  app.patch("/api/users/:id/battery", async (req, res) => {
+    const { id } = req.params;
+    const { batteryLevel, isCharging } = req.body;
+    const user = db.users.get(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const updatedUser = { ...user, batteryLevel, isCharging, lastActive: Date.now() };
+    db.users.set(id, updatedUser);
+    dbHelper.setUser(id, updatedUser);
+    io.emit('user_updated', { id, batteryLevel, isCharging, lastActive: updatedUser.lastActive });
+    res.json({ success: true });
+  });
+
+  app.post("/api/emergency", async (req, res) => {
+    const { phleboId, location } = req.body;
+    if (!phleboId) {
+      return res.status(400).json({ success: false, message: "Missing phleboId" });
+    }
+
+    const user = db.users.get(phleboId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const emergencyAlert = {
+      id: `ALERT-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      phleboId,
+      phleboName: user.name,
+      phone: user.phone || 'N/A',
+      location: location || user.currentLocation || { lat: 0, lng: 0, address: "Live GPS Signal" },
+      timestamp: Date.now(),
+      status: 'ACTIVE'
+    };
+
+    db.emergencies.push(emergencyAlert);
+
+    // Also log this in db.logs
+    const logEntry = {
+      id: `LOG-EMER-${Date.now()}`,
+      timestamp: Date.now(),
+      userId: phleboId,
+      action: "EMERGENCY_ALERT",
+      details: JSON.stringify(emergencyAlert),
+      ip: req.ip
+    };
+    db.logs.push(logEntry);
+    dbHelper.addLog(logEntry.id, logEntry);
+
+    // Emit socket event to all clients
+    io.emit('emergency_alert', emergencyAlert);
+    io.emit('notification', { message: `🚨 EMERGENCY ALERT: Phlebotomist ${user.name} requires assistance!`, type: 'info' });
+
+    res.json({ success: true, alert: emergencyAlert });
+  });
+
+  app.get("/api/emergencies", (req, res) => {
+    res.json(db.emergencies);
+  });
+
+  app.post("/api/emergencies/resolve", (req, res) => {
+    const { alertId } = req.body;
+    if (!alertId) {
+      return res.status(400).json({ success: false, message: "Missing alertId" });
+    }
+
+    db.emergencies = db.emergencies.filter((e: any) => e.id !== alertId);
+    
+    io.emit('emergency_resolved', { alertId });
+    res.json({ success: true });
+  });
 
   app.use(api404);
 
@@ -949,7 +1053,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(join(__dirname, "dist")));
+    const distPath = join(process.cwd(), "dist");
+    app.use(express.static(distPath));
     
     // Return 404 for missing assets
     app.use('/assets', (req, res) => {
@@ -957,7 +1062,7 @@ async function startServer() {
     });
 
     app.get('*', (req, res) => {
-      res.sendFile(join(__dirname, "dist/index.html"));
+      res.sendFile(join(distPath, "index.html"));
     });
   }
 

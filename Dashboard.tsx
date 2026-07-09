@@ -72,7 +72,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     manualVisitCharge: 0,
     isWaived: false,
     selectedLabId: labs[0]?.id || '',
-    generatedDestination: { lat: 19.1, lng: 72.8 },
+    generatedDestination: { lat: 17.684942, lng: 73.998142 },
     selectedHospitalName: '',
     selectedHospitalId: ''
   });
@@ -195,7 +195,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       manualVisitCharge: 0,
       isWaived: false,
       selectedLabId: labs[0]?.id || '',
-      generatedDestination: { lat: 19.1, lng: 72.8 },
+      generatedDestination: { lat: 17.684942, lng: 73.998142 },
       selectedHospitalName: '',
       selectedHospitalId: ''
     });

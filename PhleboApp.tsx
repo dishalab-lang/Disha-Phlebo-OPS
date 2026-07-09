@@ -7,13 +7,14 @@ import {
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
   UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight, Fingerprint,
   Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink, Radar,
-  Mic, Square, Play, Volume2, CreditCard, Link, BarChart3, Truck
+  Mic, Square, Play, Volume2, CreditCard, Link, BarChart3, Truck, Battery, BatteryCharging
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
 
 import { LogoBird } from './LogoBird';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import { indexedDbHelper } from './indexedDbHelper';
 
 interface PhleboAppProps {
   currentUser: Phlebotomist;
@@ -44,15 +45,363 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [verificationInput, setVerificationInput] = useState('');
   const [handoverInput, setHandoverInput] = useState('');
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [forceOffline, setForceOffline] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingQueue, setPendingQueue] = useState<any[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('disha_pending_sync') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [indexedDbCalls, setIndexedDbCalls] = useState<CollectionCall[]>([]);
+
+  // Load initial pendingQueue and calls from IndexedDB on mount
+  useEffect(() => {
+    const loadFromDb = async () => {
+      try {
+        const dbQueue = await indexedDbHelper.getPendingSync();
+        if (dbQueue && dbQueue.length > 0) {
+          setPendingQueue(dbQueue);
+        }
+      } catch (err) {
+        console.error("Failed to load pending sync queue from IndexedDB:", err);
+      }
+
+      try {
+        const dbCalls = await indexedDbHelper.getCalls();
+        if (dbCalls && dbCalls.length > 0) {
+          setIndexedDbCalls(dbCalls);
+        }
+      } catch (err) {
+        console.error("Failed to load calls from IndexedDB in PhleboApp:", err);
+      }
+    };
+    loadFromDb();
+  }, []);
+
+  // Sync state to localStorage and IndexedDB
+  useEffect(() => {
+    localStorage.setItem('disha_pending_sync', JSON.stringify(pendingQueue));
+    indexedDbHelper.savePendingSyncList(pendingQueue);
+  }, [pendingQueue]);
+
+  // Sync calls prop to IndexedDB
+  useEffect(() => {
+    if (calls && calls.length > 0) {
+      indexedDbHelper.saveCalls(calls);
+      setIndexedDbCalls(calls);
+    }
+  }, [calls]);
+
+  const effectiveCalls = calls && calls.length > 0 ? calls : indexedDbCalls;
+
+  const getPhleboRefLocation = (): Location => {
+    // Find phlebotomist's assigned HUB/lab
+    const phleboLab = labs.find(l => l.id === currentUser.labId) || labs[0];
+    
+    if (currentUser.currentLocation && currentUser.currentLocation.lat !== 0 && currentUser.currentLocation.lng !== 0) {
+      if (phleboLab) {
+        const distToLab = calculateDistance(currentUser.currentLocation, phleboLab.location);
+        // If within 100km, the location is probably valid
+        if (distToLab <= 100) {
+          return currentUser.currentLocation;
+        }
+      } else {
+        return currentUser.currentLocation;
+      }
+    }
+    
+    // Fallback to phlebotomist's assigned HUB location
+    if (phleboLab) {
+      return phleboLab.location;
+    }
+    
+    // Ultimate fallback
+    return { lat: 17.684942, lng: 73.998142, address: 'Satara, Maharashtra' };
+  };
+
+  // Handle connection events
+  useEffect(() => {
+    const handleOnline = () => {
+      if (!forceOffline) setIsOnline(true);
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [forceOffline]);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine && !forceOffline);
+  }, [forceOffline]);
+
+  const syncPendingQueue = async () => {
+    if (isSyncing || pendingQueue.length === 0) return;
+    setIsSyncing(true);
+
+    const queueToProcess = [...pendingQueue];
+    const failedIds = new Set<string>();
+
+    for (const item of queueToProcess) {
+      try {
+        const updateObj: any = { ...item.updates, status: item.status };
+        
+        if (item.status === CallStatus.ACCEPTED) {
+          updateObj.acceptedAt = item.timestamp;
+          updateObj.assignedPhleboId = item.phleboId;
+        }
+        if (item.status === CallStatus.PENDING) {
+          updateObj.assignedPhleboId = null;
+          updateObj.acceptedAt = null;
+          updateObj.arrivedLocation = null;
+          updateObj.visitPhoto = null;
+          updateObj.samplePhoto = null;
+          updateObj.sampleType = null;
+          updateObj.voiceNote = null;
+        }
+        if (item.status === CallStatus.COLLECTED) {
+          updateObj.collectedAt = item.timestamp;
+        }
+        if (item.status === CallStatus.IN_TRANSIT) {
+          updateObj.transitAt = item.timestamp;
+        }
+        if (item.status === CallStatus.RECEIVED_AT_LAB) {
+          updateObj.receivedAt = item.timestamp;
+        }
+
+        const res = await fetch(`/api/calls/${item.callId}`, {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-user-id': item.phleboId
+          },
+          body: JSON.stringify(updateObj)
+        });
+
+        if (res.ok) {
+          // Re-trigger state update locally
+          onUpdateStatus(item.callId, item.status, item.phleboId, item.updates);
+        } else {
+          failedIds.add(item.id);
+        }
+      } catch (error) {
+        console.error(`Failed to sync pending call status for ${item.callId}:`, error);
+        failedIds.add(item.id);
+      }
+    }
+
+    setPendingQueue(prev => prev.filter(item => failedIds.has(item.id)));
+    setIsSyncing(false);
+  };
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    if (isOnline && pendingQueue.length > 0) {
+      syncPendingQueue();
+    }
+  }, [isOnline, pendingQueue.length]);
+
+  const triggerStatusUpdate = (callId: string, status: CallStatus, phleboId: string, updates?: any) => {
+    const timestamp = Date.now();
+    
+    if (!isOnline) {
+      const newItem = {
+        id: 'sync_' + Date.now() + Math.random().toString(36).substring(2, 7),
+        callId,
+        status,
+        phleboId,
+        updates,
+        timestamp
+      };
+      setPendingQueue(prev => [...prev, newItem]);
+    }
+
+    onUpdateStatus(callId, status, phleboId, updates);
+  };
+
+  const getRemainingTime = (call: CollectionCall) => {
+    const targetTimeMs = call.estimatedTatMinutes * 60000;
+    const elapsedMs = currentTime - call.placedAt;
+    const remainingMs = targetTimeMs - elapsedMs;
+    const isOverdue = remainingMs <= 0;
+    
+    const absRemainingMs = Math.abs(remainingMs);
+    const totalSeconds = Math.floor(absRemainingMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    const formattedTime = `${isOverdue ? '-' : ''}${minutes}:${seconds.toString().padStart(2, '0')}`;
+    const isCritical = elapsedMs > 0.8 * targetTimeMs;
+    
+    return {
+      formattedTime,
+      isOverdue,
+      isCritical,
+      remainingMs
+    };
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [photoType, setPhotoType] = useState<'VISIT' | 'SAMPLE' | 'HANDOVER' | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<{ url: string; label: string } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+  const [isCharging, setIsCharging] = useState<boolean | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  useEffect(() => {
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((battery: any) => {
+        const updateBattery = () => {
+          const level = battery.level * 100;
+          const charging = battery.charging;
+          setBatteryLevel(level);
+          setIsCharging(charging);
+
+          // Update backend
+          fetch(`/api/users/${currentUser.id}/battery`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batteryLevel: level, isCharging: charging })
+          }).catch(console.error);
+        };
+        updateBattery();
+        battery.addEventListener('levelchange', updateBattery);
+        battery.addEventListener('chargingchange', updateBattery);
+      });
+    }
+  }, [currentUser.id]);
+
   // Appointment Booking State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+
+  // SOS State
+  const [isPressing, setIsPressing] = useState(false);
+  const [pressProgress, setPressProgress] = useState(0); // 0 to 100
+  const [isSosActive, setIsSosActive] = useState(false);
+  const pressTimerRef = useRef<any>(null);
+  const progressIntervalRef = useRef<any>(null);
+
+  // Check on mount if this phlebo already has an active emergency
+  useEffect(() => {
+    const checkActiveSos = async () => {
+      try {
+        const res = await fetch('/api/emergencies');
+        if (res.ok) {
+          const list = await res.json();
+          const active = list.some((e: any) => e.phleboId === currentUser.id);
+          setIsSosActive(active);
+        }
+      } catch (err) {
+        console.error("Failed to fetch active emergencies:", err);
+      }
+    };
+    checkActiveSos();
+  }, [currentUser.id]);
+
+  const startPress = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (isSosActive) return;
+    setIsPressing(true);
+    setPressProgress(0);
+
+    const startTime = Date.now();
+    const duration = 3000; // 3 seconds
+
+    progressIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min((elapsed / duration) * 100, 100);
+      setPressProgress(progress);
+      if (progress >= 100) {
+        clearInterval(progressIntervalRef.current);
+      }
+    }, 50);
+
+    pressTimerRef.current = setTimeout(async () => {
+      setIsPressing(false);
+      setPressProgress(0);
+      setIsSosActive(true);
+      
+      // Trigger SOS
+      try {
+        let coords = { lat: 0, lng: 0, address: "Live GPS Signal" };
+        try {
+          const pos = await getCurrentLocation();
+          coords = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            address: "Live GPS Signal"
+          };
+        } catch (err) {
+          // Fallback to currentUser's last known location
+          if (currentUser.currentLocation) {
+            coords = {
+              ...currentUser.currentLocation,
+              address: currentUser.currentLocation.address || "Last Known Location"
+            };
+          }
+        }
+
+        await fetch('/api/emergency', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phleboId: currentUser.id,
+            location: coords
+          })
+        });
+
+        // Optional high alert beep
+        try {
+          const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const osc = context.createOscillator();
+          const gain = context.createGain();
+          osc.connect(gain);
+          gain.connect(context.destination);
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.1, context.currentTime);
+          osc.start();
+          setTimeout(() => osc.stop(), 500);
+        } catch(e) {}
+      } catch (err) {
+        console.error("SOS Trigger Error:", err);
+      }
+    }, duration);
+  };
+
+  const endPress = () => {
+    setIsPressing(false);
+    setPressProgress(0);
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+  };
+
+  const handleCancelSos = async () => {
+    setIsSosActive(false);
+    try {
+      const res = await fetch('/api/emergencies');
+      if (res.ok) {
+        const list = await res.json();
+        const myAlert = list.find((e: any) => e.phleboId === currentUser.id);
+        if (myAlert) {
+          await fetch('/api/emergencies/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alertId: myAlert.id })
+          });
+        }
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  };
   const [newAppointment, setNewAppointment] = useState({
     patientName: '',
     patientPhone: '',
@@ -64,8 +413,8 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [tripFilter, setTripFilter] = useState<'DAY' | 'WEEK' | 'MONTH' | 'ALL'>('DAY');
 
   const myActiveCalls = useMemo(() => 
-    calls.filter(c => c.assignedPhleboId === currentUser?.id && ![CallStatus.COMPLETED, CallStatus.REJECTED].includes(c.status)),
-    [calls, currentUser?.id]
+    effectiveCalls.filter(c => c.assignedPhleboId === currentUser?.id && ![CallStatus.COMPLETED, CallStatus.REJECTED].includes(c.status)),
+    [effectiveCalls, currentUser?.id]
   );
 
   const activeCall = useMemo(() => 
@@ -73,7 +422,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     [myActiveCalls, selectedActiveCallId]
   );
 
-  const availableCalls = calls.filter(c => c.status === CallStatus.PENDING && (!currentUser?.labId || c.labId === currentUser?.labId));
+  const availableCalls = effectiveCalls.filter(c => c.status === CallStatus.PENDING && (!currentUser?.labId || c.labId === currentUser?.labId));
   
   const myTrips = useMemo(() => {
     const now = Date.now();
@@ -151,12 +500,13 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   }, [currentUser.id, isSimulatingGps]);
 
   useEffect(() => {
-    if (activeCall && currentUser.currentLocation && !isSimulatingGps) {
-      const isInside = isWithinGeofence(currentUser.currentLocation, activeCall.destination, config.geofenceRadiusMeters);
+    const refLoc = getPhleboRefLocation();
+    if (activeCall && refLoc && !isSimulatingGps) {
+      const isInside = isWithinGeofence(refLoc, activeCall.destination, config.geofenceRadiusMeters);
       
       if (activeCall.status === CallStatus.VISITING || activeCall.status === CallStatus.IN_PROGRESS) {
         if (!isInside) {
-          const dist = calculateDistance(currentUser.currentLocation, activeCall.destination);
+          const dist = calculateDistance(refLoc, activeCall.destination);
           setGeoError(`Alert: You are ${dist.toFixed(2)}km outside the collection radius.`);
         } else {
           setGeoError(null);
@@ -169,14 +519,19 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     } else if (!activeCall) {
       setGeoError(null);
     }
-  }, [activeCall, currentUser.currentLocation, config.geofenceRadiusMeters, isSimulatingGps]);
+  }, [activeCall, currentUser.currentLocation, config.geofenceRadiusMeters, isSimulatingGps, labs]);
 
-  const handleAccept = (id: string) => onUpdateStatus(id, CallStatus.ACCEPTED, currentUser.id);
+  const handleAccept = (id: string) => {
+    const refLoc = getPhleboRefLocation();
+    triggerStatusUpdate(id, CallStatus.ACCEPTED, currentUser.id, {
+      acceptedLocation: refLoc
+    });
+  };
 
   const handleArrived = async () => {
     if (!activeCall) return;
     if (isSimulatingGps) {
-      onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id, {
+      triggerStatusUpdate(activeCall.id, CallStatus.VISITING, currentUser.id, {
         arrivedLocation: currentUser.currentLocation || { lat: 0, lng: 0, address: 'Simulated' }
       });
       setGeoError(null);
@@ -186,7 +541,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       const pos = await getCurrentLocation();
       const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'Live' };
       if (isWithinGeofence(loc, activeCall.destination, config.geofenceRadiusMeters)) {
-        onUpdateStatus(activeCall.id, CallStatus.VISITING, currentUser.id, {
+        triggerStatusUpdate(activeCall.id, CallStatus.VISITING, currentUser.id, {
           arrivedLocation: loc
         });
         setGeoError(null);
@@ -217,7 +572,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       alert("Evidence Required: Capture Visit Proof and Sample Photo first.");
       return;
     }
-    onUpdateStatus(activeCall.id, CallStatus.COLLECTED, currentUser.id);
+    triggerStatusUpdate(activeCall.id, CallStatus.COLLECTED, currentUser.id);
   };
 
   const handleNavigate = () => {
@@ -292,7 +647,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
         reader.onloadend = () => {
           const base64Audio = reader.result as string;
           if (activeCall) {
-            onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { voiceNote: base64Audio });
+            triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, { voiceNote: base64Audio });
           }
         };
         reader.readAsDataURL(audioBlob);
@@ -351,12 +706,58 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
           const reader = new FileReader();
           reader.onloadend = () => {
             const updates = photoType === 'VISIT' ? { visitPhoto: reader.result as string } : photoType === 'SAMPLE' ? { samplePhoto: reader.result as string } : { handoverPhoto: reader.result as string };
-            onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, updates);
+            triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, updates);
             setPhotoType(null);
           };
           reader.readAsDataURL(file);
         }
       }} />
+
+      {batteryLevel !== null && (
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl border shadow-sm ${batteryLevel < 20 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-100 text-slate-500'}`}>
+             {isCharging ? <BatteryCharging size={14} /> : <Battery size={14} />}
+             <span className="text-[10px] font-black uppercase tracking-widest">{Math.round(batteryLevel)}% {isCharging ? 'Charging' : 'Remaining'}</span>
+          </div>
+      )}
+
+      {/* Network Connectivity and Pending Sync Status */}
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 rounded-2xl border shadow-sm ${isOnline ? 'bg-white border-slate-100 text-slate-500' : 'bg-amber-50 border-amber-200 text-amber-800 animate-[pulse_3s_infinite]'}`}>
+        <div className="flex items-center justify-between sm:justify-start gap-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-amber-500 animate-ping'}`} />
+            <span className="text-[10px] font-black uppercase tracking-widest">
+              {isOnline ? 'Network: Online' : 'Network: Offline'}
+            </span>
+          </div>
+          
+          <button 
+            type="button"
+            onClick={() => setForceOffline(!forceOffline)}
+            className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all ${forceOffline ? 'bg-red-500 text-white shadow-sm border border-red-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
+          >
+            {forceOffline ? 'Go Online' : 'Force Offline'}
+          </button>
+        </div>
+        
+        {pendingQueue.length > 0 && (
+          <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-dashed border-current/10">
+            <span className="text-[9px] font-black uppercase tracking-widest bg-amber-200/50 text-amber-900 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+              <RefreshCw size={10} className={isSyncing ? 'animate-spin text-amber-700' : 'text-amber-700'} />
+              {pendingQueue.length} Pending Sync{pendingQueue.length > 1 ? 's' : ''}
+            </span>
+            {isOnline && (
+              <button 
+                type="button"
+                onClick={syncPendingQueue}
+                disabled={isSyncing}
+                className="text-[9px] font-black uppercase tracking-widest bg-brand-purple text-white px-3 py-1.5 rounded-lg active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1 shadow-md hover:bg-brand-purple/90"
+              >
+                {isSyncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex bg-white p-2 rounded-2xl border shadow-sm sticky top-0 z-[70] gap-1 backdrop-blur-md">
         <button onClick={() => setActiveTab('TASKS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'TASKS' ? 'bg-brand-purple text-white shadow-md' : 'text-slate-400'}`}>
@@ -393,28 +794,49 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
               </div>
               
               <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
-                {myActiveCalls.map(call => (
-                  <button 
-                    key={call.id}
-                    onClick={() => setSelectedActiveCallId(call.id)}
-                    className={`flex-shrink-0 px-6 py-4 rounded-2xl border-2 transition-all text-left min-w-[200px] ${selectedActiveCallId === call.id ? 'bg-brand-purple text-white border-brand-purple shadow-lg' : 'bg-white text-slate-600 border-slate-100 hover:border-brand-purple/30'}`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[8px] font-black uppercase opacity-60">{call.status.replace('_', ' ')}</span>
-                      {call.isPriority && <Zap size={10} className="text-orange-400" />}
-                    </div>
-                    <p className="text-sm font-black truncate">{call.patientName}</p>
-                    <p className="text-[9px] font-bold opacity-70 truncate mt-1">{call.destination.address}</p>
-                  </button>
-                ))}
+                {myActiveCalls.map(call => {
+                  const { formattedTime, isCritical, isOverdue } = getRemainingTime(call);
+                  const isSelected = selectedActiveCallId === call.id;
+                  return (
+                    <button 
+                      key={call.id}
+                      onClick={() => setSelectedActiveCallId(call.id)}
+                      className={`flex-shrink-0 px-6 py-4 rounded-2xl border-2 transition-all text-left min-w-[220px] relative overflow-hidden ${isSelected ? 'bg-brand-purple text-white border-brand-purple shadow-lg' : 'bg-white text-slate-600 border-slate-100 hover:border-brand-purple/30'}`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className={`text-[8px] font-black uppercase ${isSelected ? 'text-white/80' : 'text-slate-400'}`}>
+                          {call.status.replace('_', ' ')}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {call.isPriority && <Zap size={10} className="text-orange-400" />}
+                          {isCritical && <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />}
+                        </div>
+                      </div>
+                      <p className="text-sm font-black truncate">{call.patientName}</p>
+                      <p className={`text-[9px] font-bold opacity-70 truncate mt-1 ${isSelected ? 'text-white/80' : 'text-slate-400'}`}>
+                        {call.destination.address}
+                      </p>
+                      <div className="mt-3 pt-2 border-t border-dashed border-current/10 flex items-center justify-between">
+                        <span className={`text-[8px] font-black uppercase tracking-wider ${isSelected ? 'text-white/60' : 'text-slate-400'}`}>
+                          {isOverdue ? 'Overdue' : 'Time Left'}
+                        </span>
+                        <span className={`text-[10px] font-black font-mono flex items-center gap-1 ${isCritical ? 'text-red-500 animate-pulse' : isSelected ? 'text-green-300' : 'text-brand-purple'}`}>
+                          <Clock size={10} />
+                          {formattedTime}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
            {activeCall && (() => {
-             const isDelayed = currentTime - activeCall.placedAt > activeCall.estimatedTatMinutes * 60000;
+             const { formattedTime, isCritical, isOverdue } = getRemainingTime(activeCall);
+             const isDelayed = isOverdue;
              return (
-               <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up transition-all duration-500 ${isDelayed ? 'border-red-500 ring-4 ring-red-500/20 animate-[pulse_2s_infinite]' : 'border-slate-50'}`}>
+               <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up transition-all duration-500 ${isCritical ? 'border-red-500 ring-4 ring-red-500/20 animate-[pulse_2s_infinite]' : 'border-slate-50'}`}>
                  <div className={`${activeCall.isPriority ? 'brand-gradient' : 'bg-brand-purple'} p-8 text-white relative`}>
                     <div className="absolute top-6 right-8 text-right flex flex-col items-end">
                        {isDelayed && (
@@ -542,15 +964,15 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                                  <QrCode size={24} className="text-brand-purple" />
                                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">UPI QR</span>
                               </button>
-                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
+                              <button onClick={() => triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CASH} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-brand-green transition-all">
                                  <Wallet size={24} className="text-brand-green" />
                                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Cash</span>
                               </button>
-                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
+                              <button onClick={() => triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.CARD} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-blue-500 transition-all">
                                  <CreditCard size={24} className="text-blue-500" />
                                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Card</span>
                               </button>
-                              <button onClick={() => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
+                              <button onClick={() => triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, { billing: {...(activeCall.billing || {} as any), paymentStatus: 'PAID', paymentMode: PaymentMode.LINK} })} className="bg-white border-2 border-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 hover:border-orange-500 transition-all">
                                  <Link size={24} className="text-orange-500" />
                                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Link</span>
                               </button>
@@ -568,7 +990,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample Logging</p>
                            <select 
                              value={activeCall.sampleType || ''} 
-                             onChange={(e) => onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { sampleType: e.target.value })}
+                             onChange={(e) => triggerStatusUpdate(activeCall.id, activeCall.status, currentUser.id, { sampleType: e.target.value })}
                              className="w-full p-4 rounded-xl border-2 border-slate-100 text-xs font-bold focus:border-brand-purple outline-none"
                            >
                              <option value="">Select Sample Type</option>
@@ -598,7 +1020,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                      )}
                      {activeCall.status === CallStatus.COLLECTED && (
                         <button 
-                           onClick={() => onUpdateStatus(activeCall.id, CallStatus.IN_TRANSIT, currentUser.id)} 
+                           onClick={() => triggerStatusUpdate(activeCall.id, CallStatus.IN_TRANSIT, currentUser.id)} 
                            className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-orange-500 text-white"
                         >
                            <Truck size={24} /> Start Transit to Lab
@@ -619,7 +1041,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                            <button 
                               onClick={() => {
                                 if (handoverInput === activeCall.handoverCode) {
-                                  onUpdateStatus(activeCall.id, CallStatus.RECEIVED_AT_LAB, currentUser.id);
+                                  triggerStatusUpdate(activeCall.id, CallStatus.RECEIVED_AT_LAB, currentUser.id);
                                   setHandoverInput('');
                                 } else {
                                   alert("Invalid Handover PIN. Please confirm with Dispatch.");
@@ -635,7 +1057,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
 
                      {activeCall.status === CallStatus.RECEIVED_AT_LAB && (
                         <button 
-                           onClick={() => onUpdateStatus(activeCall.id, CallStatus.COMPLETED, currentUser.id)} 
+                           onClick={() => triggerStatusUpdate(activeCall.id, CallStatus.COMPLETED, currentUser.id)} 
                            className="w-full py-6 rounded-3xl font-black uppercase text-sm tracking-widest shadow-2xl flex items-center justify-center gap-4 transition-all bg-brand-green text-white"
                         >
                            <CheckCircle2 size={24} /> Accept Sample
@@ -656,8 +1078,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                      </div>
                      <div className="flex flex-col items-end">
                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">TAT Countdown</span>
-                        <span className={`text-lg font-black ${isDelayed ? 'text-red-500' : 'text-brand-purple'}`}>
-                           {Math.max(0, activeCall.estimatedTatMinutes - Math.floor((currentTime - activeCall.placedAt) / 60000))}m Left
+                        <span className={`text-lg font-black flex items-center gap-1 font-mono ${isCritical ? 'text-red-500 animate-pulse' : 'text-brand-purple'}`}>
+                           <Clock size={16} />
+                           {formattedTime}
                         </span>
                      </div>
                   </div>
@@ -674,7 +1097,8 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
              </div>
              
              {availableCalls.length > 0 ? availableCalls.map(call => {
-               const distance = currentUser.currentLocation ? calculateDistance(currentUser.currentLocation, call.destination) : null;
+               const refLoc = getPhleboRefLocation();
+               const distance = refLoc ? calculateDistance(refLoc, call.destination) : null;
                
                return (
                  <div key={call.id} className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between hover:border-brand-purple transition-all group gap-6">
@@ -691,6 +1115,18 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                          )}
                       </div>
                       <h4 className="text-2xl font-black text-slate-900">{call.patientName}</h4>
+                       {(() => {
+                         const { formattedTime, isCritical, isOverdue } = getRemainingTime(call);
+                         return (
+                           <div className="mt-2 mb-1 flex items-center gap-2">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Time Left:</span>
+                             <span className={`text-[11px] font-black font-mono flex items-center gap-1 ${isCritical ? 'text-red-500 animate-pulse' : 'text-brand-purple'}`}>
+                               <Clock size={11} />
+                               {formattedTime} {isOverdue ? 'Overdue' : ''}
+                             </span>
+                           </div>
+                         );
+                       })()}
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 flex items-center gap-1">
                         <MapPin size={10} /> {call.destination.address}
                       </p>
@@ -932,6 +1368,60 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       {activeTab === 'REPORTS' && (
         <ReportsView history={history} currentUser={currentUser} />
       )}
+
+      {/* Floating Action Button (Emergency SOS) */}
+      <div className="fixed bottom-28 right-6 z-[100] flex flex-col items-end gap-2">
+        {isPressing && (
+          <div className="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-md border border-slate-800 animate-pulse">
+            Hold {Math.max(0, Math.ceil((3000 - (pressProgress * 30)) / 1000))}s to Trigger
+          </div>
+        )}
+        {isSosActive ? (
+          <div className="flex flex-col items-end gap-2">
+            <button
+              onClick={handleCancelSos}
+              className="bg-slate-900 text-white hover:bg-slate-800 px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-slate-700 transition-all flex items-center gap-1.5"
+            >
+              <X size={12} className="text-red-500 animate-spin-slow" /> Cancel SOS
+            </button>
+            <div className="relative flex items-center justify-center">
+              <div className="absolute w-16 h-16 bg-red-500 rounded-full animate-ping opacity-60" />
+              <button
+                className="w-16 h-16 bg-red-600 hover:bg-red-700 text-white rounded-full flex flex-col items-center justify-center shadow-[0_0_25px_rgba(239,68,68,0.7)] border-4 border-white relative z-10 transition-transform active:scale-95"
+              >
+                <ShieldAlert size={24} className="animate-bounce" />
+                <span className="text-[7px] font-black uppercase tracking-widest mt-0.5">ACTIVE</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onMouseDown={startPress}
+            onMouseUp={endPress}
+            onMouseLeave={endPress}
+            onTouchStart={startPress}
+            onTouchEnd={endPress}
+            className={`w-16 h-16 rounded-full flex flex-col items-center justify-center shadow-lg border-4 border-white relative transition-all active:scale-90 select-none ${isPressing ? 'bg-red-500 text-white border-red-500' : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-white'}`}
+            style={{
+              background: isPressing 
+                ? `conic-gradient(#ef4444 ${pressProgress}%, #334155 ${pressProgress}%)`
+                : undefined
+            }}
+          >
+            {isPressing ? (
+              <div className="w-12 h-12 bg-slate-900 rounded-full flex flex-col items-center justify-center text-white">
+                <ShieldAlert size={20} className="animate-pulse text-red-500" />
+                <span className="text-[7px] font-black tracking-widest mt-0.5">SOS</span>
+              </div>
+            ) : (
+              <>
+                <ShieldAlert size={22} className="text-rose-600" />
+                <span className="text-[8px] font-black uppercase tracking-wider mt-0.5">SOS</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

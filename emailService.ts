@@ -6,8 +6,8 @@ function getTransporter() {
   if (!transporter) {
     const host = process.env.SMTP_HOST || 'smtp.gmail.com';
     const port = parseInt(process.env.SMTP_PORT || '587');
-    const user = process.env.SMTP_USER || 'PHLEBO.DISHA@GMAIL.COM';
-    const pass = process.env.SMTP_PASS || 'Phlebo@123';
+    const user = process.env.SMTP_USER || 'phlebo.disha@gmail.com';
+    const pass = process.env.SMTP_PASS || 'pbod zhgf jlyc dzsd';
 
     if (!user || !pass) {
       console.warn('SMTP credentials not fully configured. Email sending will be disabled.');
@@ -34,7 +34,7 @@ export async function sendEmail(to: string, subject: string, text: string, html?
     return;
   }
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'PHLEBO.DISHA@GMAIL.COM';
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'phlebo.disha@gmail.com';
 
   try {
     const info = await client.sendMail({
@@ -47,7 +47,15 @@ export async function sendEmail(to: string, subject: string, text: string, html?
     console.log('Email sent: %s', info.messageId);
     return info;
   } catch (error) {
-    // console.error('Error sending email:', error); // Muted to prevent spam
-    return { error: error instanceof Error ? error.message : String(error) };
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('Error sending email via SMTP:', error);
+    
+    // Add helpful guidance for common Gmail security & authentication failures
+    if (errMsg.includes('535') || errMsg.match(/auth|login/i)) {
+      return { 
+        error: `SMTP Authentication Failed: ${errMsg}. Setup Tip: If you are using Gmail (smtp.gmail.com), standard account passwords will be blocked. You must enable 2-Step Verification in your Google Account Settings page, create an "App Password" (16-character secure code), and set that App Password as your SMTP_PASS.` 
+      };
+    }
+    return { error: errMsg };
   }
 }

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { 
-  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink
+  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink, Phone, X
 } from 'lucide-react';
 import { 
   CallStatus, CollectionCall, Phlebotomist, 
@@ -12,6 +12,7 @@ import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockDat
 import { LogoBird } from './LogoBird';
 import { calculateDistance } from './geoUtils';
 import { calculateTatTarget, calculateIncentive } from './calculators';
+import { indexedDbHelper } from './indexedDbHelper';
 
 // Components
 import Dashboard from './Dashboard';
@@ -144,6 +145,7 @@ const App: React.FC = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [performanceHistory, setPerformanceHistory] = useState<CallMetrics[]>([]);
   const [allPhlebos, setAllPhlebos] = useState<Phlebotomist[]>([]);
+  const [emergencies, setEmergencies] = useState<any[]>([]);
 
   const [currentUser, setCurrentUser] = useState<Phlebotomist | null>(() => {
     return null;
@@ -171,44 +173,253 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const [callsRes, usersRes, metricsRes, configRes, labsRes, hospitalsRes, testsRes] = await Promise.all([
+      const [callsRes, usersRes, metricsRes, configRes, labsRes, hospitalsRes, testsRes, emergenciesRes] = await Promise.all([
         fetch('/api/calls'),
         fetch('/api/users'),
         fetch('/api/metrics'),
         fetch('/api/config'),
         fetch('/api/labs'),
         fetch('/api/hospitals'),
-        fetch('/api/tests')
+        fetch('/api/tests'),
+        fetch('/api/emergencies').catch(() => null)
       ]);
-      if (callsRes.ok) {
-        const fetchedCalls = await callsRes.json();
-        const unique = Array.from(new Map(fetchedCalls.map((c: any) => [c.id, c])).values()) as CollectionCall[];
-        setCalls(unique);
+
+      let fetchedCalls: CollectionCall[] = [];
+      let fetchedUsers: Phlebotomist[] = [];
+      let fetchedMetrics: CallMetrics[] = [];
+      let fetchedConfig: SystemConfig | null = null;
+      let fetchedLabs: DiagnosticLab[] = [];
+      let fetchedHospitals: Hospital[] = [];
+      let fetchedTests: DiagnosticTest[] = [];
+      let fetchedEmergencies: any[] = [];
+
+      if (callsRes.ok) fetchedCalls = await callsRes.json();
+      if (usersRes.ok) fetchedUsers = await usersRes.json();
+      if (metricsRes.ok) fetchedMetrics = await metricsRes.json();
+      if (configRes.ok) fetchedConfig = await configRes.json();
+      if (labsRes.ok) fetchedLabs = await labsRes.json();
+      if (hospitalsRes.ok) fetchedHospitals = await hospitalsRes.json();
+      if (testsRes.ok) fetchedTests = await testsRes.json();
+      if (emergenciesRes && emergenciesRes.ok) {
+        fetchedEmergencies = await emergenciesRes.json();
       }
-      if (usersRes.ok) setAllPhlebos(await usersRes.json());
-      if (metricsRes.ok) {
-        const fetchedMetrics = await metricsRes.json();
-        const unique = Array.from(new Map(fetchedMetrics.map((m: any) => [m.id || m.callId, m])).values()) as CallMetrics[];
-        setPerformanceHistory(unique);
+      setEmergencies(fetchedEmergencies);
+
+      let needReFetch = false;
+
+      // 1. Sync & Restore SYSTEM_CONFIG
+      const localConfigStr = localStorage.getItem('disha_config');
+      if (localConfigStr) {
+        const localConfig = JSON.parse(localConfigStr);
+        if (!fetchedConfig || JSON.stringify(fetchedConfig) !== JSON.stringify(localConfig)) {
+          await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localConfig)
+          });
+          fetchedConfig = localConfig;
+          needReFetch = true;
+        }
+      } else if (fetchedConfig) {
+        localStorage.setItem('disha_config', JSON.stringify(fetchedConfig));
       }
-      if (configRes.ok) {
-        const savedConfig = await configRes.json();
-        if (savedConfig) setConfig(savedConfig);
+
+      // 2. Sync & Restore HOSPITALS 
+      const localHospitalsStr = localStorage.getItem('disha_hospitals');
+      if (localHospitalsStr) {
+        const localHospitals = JSON.parse(localHospitalsStr);
+        const serverIds = new Set(fetchedHospitals.map(h => h.id));
+        const missingLocals = localHospitals.filter((h: Hospital) => !serverIds.has(h.id));
+        
+        // If server got wiped or holds fewer/only subset of hospitals than local storage, push custom ones
+        if (missingLocals.length > 0 || localHospitals.length > fetchedHospitals.length) {
+          const mergedHospitals = [...fetchedHospitals];
+          localHospitals.forEach((lh: Hospital) => {
+            if (!serverIds.has(lh.id)) {
+              mergedHospitals.push(lh);
+            }
+          });
+          await fetch('/api/hospitals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mergedHospitals)
+          });
+          fetchedHospitals = mergedHospitals;
+          needReFetch = true;
+        }
+      } else if (fetchedHospitals.length > 0) {
+        localStorage.setItem('disha_hospitals', JSON.stringify(fetchedHospitals));
       }
-      if (labsRes.ok) {
-        const fetchedLabs = await labsRes.json();
-        if (fetchedLabs && fetchedLabs.length > 0) setLabs(fetchedLabs);
+
+      // 3. Sync & Restore LABS
+      const localLabsStr = localStorage.getItem('disha_labs');
+      if (localLabsStr) {
+        const localLabs = JSON.parse(localLabsStr);
+        const serverIds = new Set(fetchedLabs.map(l => l.id));
+        const missingLocals = localLabs.filter((l: DiagnosticLab) => !serverIds.has(l.id));
+
+        if (missingLocals.length > 0 || localLabs.length > fetchedLabs.length) {
+          const mergedLabs = [...fetchedLabs];
+          localLabs.forEach((ll: DiagnosticLab) => {
+            if (!serverIds.has(ll.id)) {
+              mergedLabs.push(ll);
+            }
+          });
+          await fetch('/api/labs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mergedLabs)
+          });
+          fetchedLabs = mergedLabs;
+          needReFetch = true;
+        }
+      } else if (fetchedLabs.length > 0) {
+        localStorage.setItem('disha_labs', JSON.stringify(fetchedLabs));
       }
-      if (hospitalsRes.ok) {
-        const fetchedHospitals = await hospitalsRes.json();
-        if (fetchedHospitals && fetchedHospitals.length > 0) setHospitals(fetchedHospitals);
+
+      // 4. Sync & Restore USERS (Roster shifts are stored in here!)
+      const localUsersStr = localStorage.getItem('disha_users');
+      if (localUsersStr) {
+        const localUsers = JSON.parse(localUsersStr) as Phlebotomist[];
+        const serverUsersMap = new Set(fetchedUsers.map(u => u.id));
+        
+        let didSyncUser = false;
+        for (const lu of localUsers) {
+          // If server is missing the user, or if server's copy of user has different shifts/roles (rosters got reset)
+          const su = fetchedUsers.find(cu => cu.id === lu.id);
+          if (!su || su.shiftStart !== lu.shiftStart || su.shiftEnd !== lu.shiftEnd || su.role !== lu.role || su.status !== lu.status) {
+            await fetch('/api/users', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-user-id': 'system' },
+              body: JSON.stringify(lu)
+            });
+            didSyncUser = true;
+          }
+        }
+        if (didSyncUser) {
+          needReFetch = true;
+        }
+      } else if (fetchedUsers.length > 0) {
+        localStorage.setItem('disha_users', JSON.stringify(fetchedUsers));
       }
-      if (testsRes.ok) {
-        const fetchedTests = await testsRes.json();
-        if (fetchedTests && fetchedTests.length > 0) setTests(fetchedTests);
+
+      // 5. Sync & Restore CALLS
+      const localCallsStr = localStorage.getItem('disha_calls');
+      if (localCallsStr) {
+        const localCalls = JSON.parse(localCallsStr) as CollectionCall[];
+        const serverCallIds = new Set(fetchedCalls.map(c => c.id));
+        
+        let didSyncCall = false;
+        for (const lc of localCalls) {
+          if (!serverCallIds.has(lc.id)) {
+            await fetch('/api/calls', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-user-id': 'system' },
+              body: JSON.stringify(lc)
+            });
+            didSyncCall = true;
+          }
+        }
+        if (didSyncCall) {
+          needReFetch = true;
+        }
+      } else if (fetchedCalls.length > 0) {
+        localStorage.setItem('disha_calls', JSON.stringify(fetchedCalls));
       }
+
+      // 6. Sync & Restore TESTS
+      const localTestsStr = localStorage.getItem('disha_tests');
+      if (localTestsStr) {
+        const localTests = JSON.parse(localTestsStr);
+        if (localTests.length > fetchedTests.length) {
+          await fetch('/api/tests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localTests)
+          });
+          fetchedTests = localTests;
+          needReFetch = true;
+        }
+      } else if (fetchedTests.length > 0) {
+        localStorage.setItem('disha_tests', JSON.stringify(fetchedTests));
+      }
+
+      // If we performed self-healing restoring, re-query server list for accurate states
+      if (needReFetch) {
+        const [reCalls, reUsers, reTests, reLabs, reHospitals, reConfig] = await Promise.all([
+          fetch('/api/calls'),
+          fetch('/api/users'),
+          fetch('/api/tests'),
+          fetch('/api/labs'),
+          fetch('/api/hospitals'),
+          fetch('/api/config')
+        ]);
+        if (reCalls.ok) fetchedCalls = await reCalls.json();
+        if (reUsers.ok) fetchedUsers = await reUsers.json();
+        if (reTests.ok) fetchedTests = await reTests.json();
+        if (reLabs.ok) fetchedLabs = await reLabs.json();
+        if (reHospitals.ok) fetchedHospitals = await reHospitals.json();
+        if (reConfig.ok) fetchedConfig = await reConfig.json();
+      }
+
+      // Final state updates
+      const uniqueCalls = Array.from(new Map(fetchedCalls.map((c: any) => [c.id, c])).values()) as CollectionCall[];
+      setCalls(uniqueCalls);
+      localStorage.setItem('disha_calls', JSON.stringify(uniqueCalls));
+
+      setAllPhlebos(fetchedUsers);
+      localStorage.setItem('disha_users', JSON.stringify(fetchedUsers));
+
+      const uniqueMetrics = Array.from(new Map(fetchedMetrics.map((m: any) => [m.id || m.callId, m])).values()) as CallMetrics[];
+      setPerformanceHistory(uniqueMetrics);
+
+      if (fetchedConfig) {
+        setConfig(fetchedConfig);
+        localStorage.setItem('disha_config', JSON.stringify(fetchedConfig));
+      }
+      if (fetchedLabs.length > 0) {
+        setLabs(fetchedLabs);
+        localStorage.setItem('disha_labs', JSON.stringify(fetchedLabs));
+      }
+      if (fetchedHospitals.length > 0) {
+        setHospitals(fetchedHospitals);
+        localStorage.setItem('disha_hospitals', JSON.stringify(fetchedHospitals));
+      }
+      if (fetchedTests.length > 0) {
+        setTests(fetchedTests);
+        localStorage.setItem('disha_tests', JSON.stringify(fetchedTests));
+      }
+
     } catch (e) {
       console.error("Fetch error:", e);
+      try {
+        const savedCalls = await indexedDbHelper.getCalls();
+        if (savedCalls && savedCalls.length > 0) {
+          setCalls(savedCalls);
+        } else {
+          const localCallsStr = localStorage.getItem('disha_calls');
+          if (localCallsStr) {
+            setCalls(JSON.parse(localCallsStr));
+          }
+        }
+
+        const localConfigStr = localStorage.getItem('disha_config');
+        if (localConfigStr) setConfig(JSON.parse(localConfigStr));
+
+        const localLabsStr = localStorage.getItem('disha_labs');
+        if (localLabsStr) setLabs(JSON.parse(localLabsStr));
+
+        const localHospitalsStr = localStorage.getItem('disha_hospitals');
+        if (localHospitalsStr) setHospitals(JSON.parse(localHospitalsStr));
+
+        const localTestsStr = localStorage.getItem('disha_tests');
+        if (localTestsStr) setTests(JSON.parse(localTestsStr));
+
+        const localUsersStr = localStorage.getItem('disha_users');
+        if (localUsersStr) setAllPhlebos(JSON.parse(localUsersStr));
+      } catch (err) {
+        console.error("Failed to load offline fallback data:", err);
+      }
     }
   }, []);
 
@@ -220,6 +431,12 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  useEffect(() => {
+    if (calls && calls.length > 0) {
+      indexedDbHelper.saveCalls(calls);
+    }
+  }, [calls]);
 
   // Initial data fetch and Socket.io setup
   useEffect(() => {
@@ -257,6 +474,29 @@ const App: React.FC = () => {
 
     socket.on('notification', (notif) => {
       setToast({ message: notif.message, type: notif.type || 'info' });
+    });
+
+    socket.on('emergency_alert', (alert) => {
+      setEmergencies(prev => {
+        if (prev.some(e => e.id === alert.id)) return prev;
+        return [alert, ...prev];
+      });
+      // Sound cue
+      try {
+        const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = context.createOscillator();
+        const gain = context.createGain();
+        osc.connect(gain);
+        gain.connect(context.destination);
+        osc.frequency.value = 1100;
+        gain.gain.setValueAtTime(0.2, context.currentTime);
+        osc.start();
+        setTimeout(() => osc.stop(), 800);
+      } catch(e) {}
+    });
+
+    socket.on('emergency_resolved', ({ alertId }) => {
+      setEmergencies(prev => prev.filter(e => e.id !== alertId));
     });
 
     return () => {
@@ -327,7 +567,9 @@ const App: React.FC = () => {
         setCalls(prev => {
           const exists = prev.some(c => c.id === newCallObj.id);
           if (exists) return prev;
-          return [newCallObj, ...prev];
+          const updated = [newCallObj, ...prev];
+          localStorage.setItem('disha_calls', JSON.stringify(updated));
+          return updated;
         });
         setToast({ message: `Deployment Active: ${newCallObj.patientName}`, type: 'success' });
         fetchData();
@@ -385,6 +627,12 @@ const App: React.FC = () => {
     if (status === CallStatus.ACCEPTED) {
       update.acceptedAt = Date.now();
       update.assignedPhleboId = phleboId;
+      const phlebo = allPhlebos.find(p => p.id === phleboId);
+      if (updates && (updates as any).acceptedLocation) {
+        update.acceptedLocation = (updates as any).acceptedLocation;
+      } else if (phlebo?.currentLocation) {
+        update.acceptedLocation = phlebo.currentLocation;
+      }
     }
     if (status === CallStatus.PENDING) {
       update.assignedPhleboId = null;
@@ -394,6 +642,7 @@ const App: React.FC = () => {
       update.samplePhoto = null;
       update.sampleType = null;
       update.voiceNote = null;
+      update.acceptedLocation = null;
     }
     if (status === CallStatus.COLLECTED) {
       update.collectedAt = Date.now();
@@ -406,11 +655,33 @@ const App: React.FC = () => {
     }
     if (status === CallStatus.DELIVERED || status === CallStatus.RECEIVED_AT_LAB) {
       const now = Date.now();
-      const lab = labs.find(l => l.id === (calls.find(c => c.id === callId)?.labId)) || labs[0];
       const call = calls.find(c => c.id === callId);
+      const lab = labs.find(l => l.id === (call?.labId)) || labs[0];
       if (call && lab) {
-        const dist = calculateDistance(call.destination, lab.location);
         const phlebo = allPhlebos.find(p => p.id === (phleboId || call.assignedPhleboId));
+        // Find phlebo's assigned HUB (lab)
+        const phleboLab = phlebo?.labId ? (labs.find(l => l.id === phlebo.labId) || labs[0]) : lab;
+        
+        // Find starting location:
+        // Use the acceptedLocation if available, otherwise the phlebo's current location, otherwise fallback to their assigned hub location
+        let startLoc = phleboLab?.location || lab.location;
+        if (phlebo?.currentLocation && phlebo.currentLocation.lat !== 0 && phlebo.currentLocation.lng !== 0) {
+          const distToHub = calculateDistance(phlebo.currentLocation, phleboLab?.location || { lat: 0, lng: 0, address: "" });
+          // If within 100km of the assigned hub, it's a valid live location
+          if (distToHub <= 100) {
+            startLoc = phlebo.currentLocation;
+          }
+        }
+        
+        const callAcceptedLoc = (updates as any)?.acceptedLocation || call.acceptedLocation;
+        if (callAcceptedLoc && callAcceptedLoc.lat !== 0 && callAcceptedLoc.lng !== 0) {
+          const distToHub = calculateDistance(callAcceptedLoc, phleboLab?.location || { lat: 0, lng: 0, address: "" });
+          if (distToHub <= 100) {
+            startLoc = callAcceptedLoc;
+          }
+        }
+
+        const dist = calculateDistance(call.destination, startLoc);
         const tatTarget = calculateTatTarget(dist, config);
         const totalMins = (now - call.placedAt) / 60000;
         
@@ -435,14 +706,22 @@ const App: React.FC = () => {
       }
     }
 
+    // Optimistic UI Update: update state and localStorage immediately
+    setCalls(prev => {
+      const updated = prev.map(c => c.id === callId ? { ...c, ...update } : c);
+      localStorage.setItem('disha_calls', JSON.stringify(updated));
+      return updated;
+    });
+
     try {
       await fetch(`/api/calls/${callId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'x-user-id': currentUser?.id || 'system' },
         body: JSON.stringify(update)
       });
-      setCalls(prev => prev.map(c => c.id === callId ? { ...c, ...update } : c));
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Deferred sync due to network error:", e);
+    }
   };
 
 
@@ -633,6 +912,7 @@ const App: React.FC = () => {
       });
       if (res.ok) {
         setConfig(newConfig);
+        localStorage.setItem('disha_config', JSON.stringify(newConfig));
         setToast({ message: "Enterprise standards synchronized", type: 'success' });
       }
     } catch (e) {
@@ -649,6 +929,7 @@ const App: React.FC = () => {
       });
       if (res.ok) {
         setLabs(newLabs);
+        localStorage.setItem('disha_labs', JSON.stringify(newLabs));
         setToast({ message: "Labs synchronized", type: 'success' });
       }
     } catch (e) {
@@ -665,6 +946,7 @@ const App: React.FC = () => {
       });
       if (res.ok) {
         setHospitals(newHospitals);
+        localStorage.setItem('disha_hospitals', JSON.stringify(newHospitals));
         setToast({ message: "Hospitals synchronized", type: 'success' });
       }
     } catch (e) {
@@ -708,7 +990,11 @@ const App: React.FC = () => {
         body: JSON.stringify(newP)
       });
       if (res.ok) {
-        setAllPhlebos(prev => [...prev, newP]);
+        setAllPhlebos(prev => {
+          const updated = [...prev, newP];
+          localStorage.setItem('disha_users', JSON.stringify(updated));
+          return updated;
+        });
         setToast({ message: `Staff Provisioned: ${newP.name} (User: ${newP.username})`, type: 'success' });
       } else {
         setToast({ message: "Failed to provision staff", type: 'info' });
@@ -726,7 +1012,11 @@ const App: React.FC = () => {
         body: JSON.stringify(updates)
       });
       if (res.ok) {
-        setAllPhlebos(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+        setAllPhlebos(prev => {
+          const updated = prev.map(p => p.id === id ? { ...p, ...updates } : p);
+          localStorage.setItem('disha_users', JSON.stringify(updated));
+          return updated;
+        });
       }
     } catch (e) {
       console.error("Failed to update user:", e);
@@ -739,7 +1029,11 @@ const App: React.FC = () => {
         method: 'DELETE'
       });
       if (res.ok) {
-        setAllPhlebos(prev => prev.filter(p => p.id !== id));
+        setAllPhlebos(prev => {
+          const updated = prev.filter(p => p.id !== id);
+          localStorage.setItem('disha_users', JSON.stringify(updated));
+          return updated;
+        });
         setToast({ message: "Staff record decommissioned", type: 'success' });
       }
     } catch (e) {
@@ -894,6 +1188,79 @@ const App: React.FC = () => {
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[1000] animate-slide-up">
           <div className="px-8 py-4 bg-brand-purple text-white rounded-2xl shadow-2xl font-black text-xs uppercase tracking-widest border-2 border-white">
             {toast.message}
+          </div>
+        </div>
+      )}
+
+      {currentUser && ['ADMIN', 'SYSTEM_ADMIN', 'RECEPTION', 'DEVELOPER', 'DISPATCHER'].includes(currentUser.role) && emergencies.length > 0 && (
+        <div className="bg-red-600 text-white z-[9999] border-b-4 border-red-700 animate-pulse-slow">
+          <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-white/20 pb-3">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                </span>
+                <ShieldAlert className="text-white animate-bounce" size={24} />
+                <h3 className="text-base font-black uppercase tracking-wider">CRITICAL: ACTIVE EMERGENCY ALERT ({emergencies.length})</h3>
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest bg-red-800 px-3 py-1.5 rounded-xl border border-red-500 animate-pulse">IMMEDIATE DISPATCH REQUIRED</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {emergencies.map((alert) => (
+                <div key={alert.id} className="bg-slate-950/95 border-2 border-red-500 rounded-3xl p-6 text-slate-100 flex flex-col gap-4 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/10 rounded-bl-full flex items-center justify-center">
+                    <ShieldAlert size={20} className="text-red-500" />
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-red-500">PHLEBOTOMIST</span>
+                    <h4 className="text-base font-black">{alert.phleboName} <span className="text-xs font-bold text-slate-400">({alert.phleboId})</span></h4>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">CURRENT GPS LOCATION</span>
+                    <p className="text-xs font-mono font-bold mt-0.5">{alert.location.lat.toFixed(6)}, {alert.location.lng.toFixed(6)}</p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase">{alert.location.address || 'Live Signal'}</p>
+                  </div>
+                  <div className="flex items-center gap-2 pt-2">
+                    <a 
+                      href={`tel:${alert.phone}`}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-red-500 transition-all active:scale-95 shadow-md"
+                    >
+                      <Phone size={14} /> CALL PHLEBO
+                    </a>
+                    <a 
+                      href={`https://www.google.com/maps/search/?api=1&query=${alert.location.lat},${alert.location.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition-all active:scale-95"
+                    >
+                      <MapPin size={14} /> MAP
+                    </a>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          await fetch('/api/emergencies/resolve', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ alertId: alert.id })
+                          });
+                          setEmergencies(prev => prev.filter(e => e.id !== alert.id));
+                        } catch(e) {
+                          console.error("Failed to resolve emergency:", e);
+                        }
+                      }}
+                      className="bg-brand-green hover:bg-green-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center transition-all active:scale-95"
+                    >
+                      RESOLVE
+                    </button>
+                  </div>
+                  <div className="text-[8px] text-slate-500 font-bold uppercase mt-1 self-end">
+                    TRIGGERED: {new Date(alert.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

@@ -173,6 +173,15 @@ export interface SystemConfig {
   baseIncentive: number;
   announcement?: string | null;
   securityPin: string;
+  exotelApiKey?: string;
+  exotelApiToken?: string;
+  exotelAccountSid?: string;
+  exotelSubdomain?: string;
+  exotelSenderId?: string;
+  exotelDltEntityId?: string;
+  exotelDltTemplateId?: string;
+  fast2smsApiKey?: string;
+  fast2smsRoute?: string;
 }
 
 export interface CallMetrics {

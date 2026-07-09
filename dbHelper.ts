@@ -2,10 +2,10 @@ import Database from 'better-sqlite3';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filenamePath = typeof __filename !== 'undefined' ? __filename : (typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : '');
+const __dirnamePath = typeof __dirname !== 'undefined' ? __dirname : dirname(__filenamePath);
 
-const dbPath = join(__dirname, 'disha.db');
+const dbPath = join(__dirnamePath, 'disha.db');
 const sqliteDb = new Database(dbPath);
 
 // Initialize tables
