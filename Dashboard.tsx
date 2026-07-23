@@ -28,11 +28,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   currentUser, calls, appointments, config, labs, hospitals, phleboList, tests, 
   onCreateCall, onUpdateStatus, onResendOtp, onUpdateAppointmentStatus 
 }) => {
-  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE' | 'COMPLETED'>('QUEUE');
+  const [activeTab, setActiveTab] = useState<'QUEUE' | 'RADAR' | 'SCHEDULE' | 'COMPLETED' | 'CANCELLED'>('QUEUE');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testSearch, setTestSearch] = useState('');
   const [selectedTests, setSelectedTests] = useState<DiagnosticTest[]>([]);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [cancelConfirmCallId, setCancelConfirmCallId] = useState<string | null>(null);
+  const [redeployConfirmCallId, setRedeployConfirmCallId] = useState<string | null>(null);
+  const [cancelConfirmAptId, setCancelConfirmAptId] = useState<string | null>(null);
 
   const handleDownloadInvoice = (call: CollectionCall) => {
     const doc = new jsPDF() as any;
@@ -211,14 +214,15 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight uppercase">Dispatcher Portal</h2>
-          <div className="flex items-center gap-4 mt-2">
-            <div className="flex bg-white p-1 rounded-2xl border shadow-sm gap-1">
-               <button onClick={() => setActiveTab('QUEUE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Queue</button>
-               <button onClick={() => setActiveTab('SCHEDULE')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SCHEDULE' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Schedule</button>
-               <button onClick={() => setActiveTab('RADAR')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'RADAR' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Fleet</button>
-               <button onClick={() => setActiveTab('COMPLETED')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'COMPLETED' ? 'bg-brand-purple text-white' : 'text-slate-400'}`}>Completed</button>
+          <div className="flex flex-wrap items-center gap-3 mt-2">
+            <div className="flex bg-white p-1 rounded-2xl border shadow-sm gap-1 overflow-x-auto max-w-full no-scrollbar">
+               <button onClick={() => setActiveTab('QUEUE')} className={`px-4 sm:px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'QUEUE' ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Queue</button>
+               <button onClick={() => setActiveTab('SCHEDULE')} className={`px-4 sm:px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'SCHEDULE' ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Schedule</button>
+               <button onClick={() => setActiveTab('RADAR')} className={`px-4 sm:px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'RADAR' ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Fleet</button>
+               <button onClick={() => setActiveTab('COMPLETED')} className={`px-4 sm:px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'COMPLETED' ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Completed</button>
+               <button onClick={() => setActiveTab('CANCELLED')} className={`px-4 sm:px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'CANCELLED' ? 'bg-brand-purple text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Cancelled</button>
             </div>
-            <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-2xl border border-green-100">
+            <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-2xl border border-green-100 shrink-0">
               <div className="w-2 h-2 bg-brand-green rounded-full animate-pulse" />
               <span className="text-[10px] font-black text-brand-green uppercase tracking-widest">{onlinePhlebosCount} Phlebos Online</span>
             </div>
@@ -264,9 +268,48 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(appointment.scheduledAt).toLocaleTimeString()}</span>
                     </td>
                     <td className="px-6 py-6 text-center">
-                      <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${appointment.status === 'SCHEDULED' ? 'bg-blue-50 text-blue-400' : 'bg-green-50 text-green-400'}`}>
-                        {appointment.status}
-                      </span>
+                      <div className="flex flex-col items-center gap-2">
+                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                          appointment.status === 'SCHEDULED' ? 'bg-blue-50 text-blue-400' : 
+                          appointment.status === 'CANCELLED' ? 'bg-red-50 text-red-500 border-red-200' :
+                          'bg-green-50 text-green-400'
+                        }`}>
+                          {appointment.status}
+                        </span>
+                        {cancelConfirmAptId === appointment.id ? (
+                          <div className="flex flex-col items-center gap-1.5 p-2 bg-red-50 border border-red-200 rounded-xl mt-1">
+                            <span className="text-[9px] font-black text-red-600 uppercase">Cancel appointment?</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  if (onUpdateAppointmentStatus) {
+                                    onUpdateAppointmentStatus(appointment.id, 'CANCELLED');
+                                  }
+                                  setCancelConfirmAptId(null);
+                                }}
+                                className="px-3 py-1 bg-red-600 text-white rounded-lg text-[9px] font-black uppercase hover:bg-red-700 transition-all shadow-sm"
+                              >
+                                Yes, Cancel
+                              </button>
+                              <button
+                                onClick={() => setCancelConfirmAptId(null)}
+                                className="px-3 py-1 bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black uppercase hover:bg-slate-300 transition-all"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          appointment.status === 'SCHEDULED' && onUpdateAppointmentStatus && (
+                            <button
+                              onClick={() => setCancelConfirmAptId(appointment.id)}
+                              className="text-[8px] font-black text-red-500 uppercase hover:underline"
+                            >
+                              Cancel Appointment
+                            </button>
+                          )
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -277,7 +320,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       ) : (
         <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeTab === 'COMPLETED' ? 'Completed Collections' : 'Active deployments'}</h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+              {activeTab === 'COMPLETED' ? 'Completed Collections' : activeTab === 'CANCELLED' ? 'Cancelled Collections' : 'Active deployments'}
+            </h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -290,7 +335,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {calls.filter(c => activeTab === 'COMPLETED' ? c.status === CallStatus.COMPLETED : c.status !== CallStatus.COMPLETED).map(call => {
+                {calls.filter(c => {
+                  if (activeTab === 'COMPLETED') return c.status === CallStatus.COMPLETED;
+                  if (activeTab === 'CANCELLED') return c.status === CallStatus.CANCELLED;
+                  return c.status !== CallStatus.COMPLETED && c.status !== CallStatus.CANCELLED;
+                }).map(call => {
                   const phlebo = phleboList.find(p => p.id === call.assignedPhleboId);
                   return (
                     <tr key={call.id} className="hover:bg-slate-50 transition-colors">
@@ -371,19 +420,73 @@ const Dashboard: React.FC<DashboardProps> = ({
                               )}
                             </div>
                             
-                            {['ADMIN', 'RECEPTION', 'SYSTEM_ADMIN', 'DEVELOPER'].includes(currentUser.role) && call.status !== CallStatus.COMPLETED && call.status !== CallStatus.PENDING && (
-                               <button 
-                                 onClick={() => {
-                                   if (window.confirm("Are you sure you want to redeploy this call? This will reset its status to PENDING and unassign it.")) {
-                                       if (onUpdateStatus) {
-                                           onUpdateStatus(call.id, CallStatus.PENDING, '', { assignedPhleboId: null, otpRetryCount: 0, isOtpLocked: false } as any);
-                                       }
-                                   }
-                                 }}
-                                 className="text-[8px] font-black text-brand-purple uppercase hover:underline mt-1"
-                               >
-                                 Redeploy
-                               </button>
+                            {call.status !== CallStatus.COMPLETED && call.status !== CallStatus.CANCELLED && (
+                               <div className="flex flex-col items-center gap-1 mt-1">
+                                 {cancelConfirmCallId === call.id ? (
+                                   <div className="flex flex-col items-center gap-1.5 p-2 bg-red-50 border border-red-200 rounded-xl">
+                                     <span className="text-[9px] font-black text-red-600 uppercase">Cancel call for {call.patientName}?</span>
+                                     <div className="flex items-center gap-2">
+                                       <button
+                                         onClick={() => {
+                                           if (onUpdateStatus) {
+                                             onUpdateStatus(call.id, CallStatus.CANCELLED, '', { assignedPhleboId: null });
+                                           }
+                                           setCancelConfirmCallId(null);
+                                         }}
+                                         className="px-3 py-1 bg-red-600 text-white rounded-lg text-[9px] font-black uppercase hover:bg-red-700 transition-all shadow-sm"
+                                       >
+                                         Yes, Cancel
+                                       </button>
+                                       <button
+                                         onClick={() => setCancelConfirmCallId(null)}
+                                         className="px-3 py-1 bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black uppercase hover:bg-slate-300 transition-all"
+                                       >
+                                         Keep Call
+                                       </button>
+                                     </div>
+                                   </div>
+                                 ) : redeployConfirmCallId === call.id ? (
+                                   <div className="flex flex-col items-center gap-1.5 p-2 bg-purple-50 border border-purple-200 rounded-xl">
+                                     <span className="text-[9px] font-black text-brand-purple uppercase">Redeploy call for {call.patientName}?</span>
+                                     <div className="flex items-center gap-2">
+                                       <button
+                                         onClick={() => {
+                                           if (onUpdateStatus) {
+                                             onUpdateStatus(call.id, CallStatus.PENDING, '', { assignedPhleboId: null, otpRetryCount: 0, isOtpLocked: false } as any);
+                                           }
+                                           setRedeployConfirmCallId(null);
+                                         }}
+                                         className="px-3 py-1 bg-brand-purple text-white rounded-lg text-[9px] font-black uppercase hover:bg-purple-700 transition-all shadow-sm"
+                                       >
+                                         Yes, Redeploy
+                                       </button>
+                                       <button
+                                         onClick={() => setRedeployConfirmCallId(null)}
+                                         className="px-3 py-1 bg-slate-200 text-slate-700 rounded-lg text-[9px] font-black uppercase hover:bg-slate-300 transition-all"
+                                       >
+                                         Dismiss
+                                       </button>
+                                     </div>
+                                   </div>
+                                 ) : (
+                                   <div className="flex items-center gap-3">
+                                     {call.status !== CallStatus.PENDING && (
+                                       <button 
+                                         onClick={() => setRedeployConfirmCallId(call.id)}
+                                         className="text-[8px] font-black text-brand-purple uppercase hover:underline"
+                                       >
+                                         Redeploy
+                                       </button>
+                                     )}
+                                     <button 
+                                       onClick={() => setCancelConfirmCallId(call.id)}
+                                       className="text-[8px] font-black text-red-500 uppercase hover:underline"
+                                     >
+                                       Cancel Call
+                                     </button>
+                                   </div>
+                                 )}
+                               </div>
                             )}
 
                             {call.status !== CallStatus.COMPLETED && (

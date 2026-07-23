@@ -9,7 +9,8 @@ export const CallStatus = {
   DELIVERED: 'DELIVERED', 
   COMPLETED: 'COMPLETED',
   REJECTED: 'REJECTED',
-  IN_PROGRESS: 'IN_PROGRESS'
+  IN_PROGRESS: 'IN_PROGRESS',
+  CANCELLED: 'CANCELLED'
 } as const;
 
 export type CallStatus = typeof CallStatus[keyof typeof CallStatus];

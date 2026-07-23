@@ -15,6 +15,7 @@ import { LogoBird } from './LogoBird';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { indexedDbHelper } from './indexedDbHelper';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 interface PhleboAppProps {
   currentUser: Phlebotomist;
@@ -42,6 +43,9 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [isSimulatingGps, setIsSimulatingGps] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
   const [showNavOptions, setShowNavOptions] = useState(false);
+  const [showMiniMapModal, setShowMiniMapModal] = useState(false);
+  const [miniMapLocation, setMiniMapLocation] = useState<Location | null>(null);
+  const [isRefreshingGps, setIsRefreshingGps] = useState(false);
   const [verificationInput, setVerificationInput] = useState('');
   const [handoverInput, setHandoverInput] = useState('');
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -580,6 +584,35 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
     setShowNavOptions(true);
   };
 
+  const handleOpenMiniMap = async () => {
+    setShowMiniMapModal(true);
+    setIsRefreshingGps(true);
+    try {
+      const pos = await getCurrentLocation();
+      const newLoc: Location = { lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'Live Browser GPS' };
+      setMiniMapLocation(newLoc);
+      onUpdateLocation(currentUser.id, newLoc);
+    } catch (e) {
+      setMiniMapLocation(getPhleboRefLocation());
+    } finally {
+      setIsRefreshingGps(false);
+    }
+  };
+
+  const handleRefreshMiniMapGps = async () => {
+    setIsRefreshingGps(true);
+    try {
+      const pos = await getCurrentLocation();
+      const newLoc: Location = { lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'Live Browser GPS' };
+      setMiniMapLocation(newLoc);
+      onUpdateLocation(currentUser.id, newLoc);
+    } catch (e) {
+      setMiniMapLocation(getPhleboRefLocation());
+    } finally {
+      setIsRefreshingGps(false);
+    }
+  };
+
   const navigateWithGoogleMaps = () => {
     if (!activeCall) return;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${activeCall.destination.lat},${activeCall.destination.lng}`;
@@ -597,6 +630,12 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const handleCallPatient = () => {
     if (!activeCall) return;
     window.location.href = `tel:${activeCall.patientPhone}`;
+  };
+
+  const handleTogglePriority = () => {
+    if (!activeCall) return;
+    const newPriority = !activeCall.isPriority;
+    onUpdateStatus(activeCall.id, activeCall.status, currentUser.id, { isPriority: newPriority });
   };
 
   const handleCreateAppointment = (e: React.FormEvent) => {
@@ -839,6 +878,12 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                <div className={`bg-white rounded-[2.5rem] shadow-2xl border-4 overflow-hidden animate-slide-up transition-all duration-500 ${isCritical ? 'border-red-500 ring-4 ring-red-500/20 animate-[pulse_2s_infinite]' : 'border-slate-50'}`}>
                  <div className={`${activeCall.isPriority ? 'brand-gradient' : 'bg-brand-purple'} p-8 text-white relative`}>
                     <div className="absolute top-6 right-8 text-right flex flex-col items-end">
+                       {activeCall.isPriority && (
+                         <div className="flex items-center gap-1.5 px-3 py-1 bg-orange-500 text-white rounded-full text-[9px] font-black uppercase tracking-widest mb-2 shadow-lg border border-orange-300 animate-pulse">
+                           <Zap size={12} className="fill-white text-white" />
+                           <span>Urgent Priority</span>
+                         </div>
+                       )}
                        {isDelayed && (
                          <div className="flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[9px] font-black uppercase tracking-widest mb-3 animate-pulse border border-white/30">
                            <AlertTriangle size={12} className="text-yellow-300" />
@@ -853,12 +898,38 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
                   <h2 className="text-3xl font-black tracking-tight">{activeCall.patientName}</h2>
                   <p className="text-[10px] font-bold opacity-80 mt-2 flex items-center gap-2 max-w-[80%] truncate"><MapPin size={12}/> {activeCall.destination.address}</p>
                   
-                  <div className="flex gap-2 mt-6">
-                     <button onClick={handleNavigate} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
+                  {/* Dynamic ETA & Traffic Speed Calculator Display */}
+                  {(() => {
+                    const refLoc = getPhleboRefLocation();
+                    const distanceKm = refLoc ? calculateDistance(refLoc, activeCall.destination) : 0;
+                    const avgTrafficSpeedKmH = 26; // Urban traffic average speed (km/h)
+                    const travelTimeMins = Math.max(2, Math.round((distanceKm / avgTrafficSpeedKmH) * 60));
+                    const etaDate = new Date(Date.now() + travelTimeMins * 60000);
+                    const etaFormatted = etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    return (
+                      <div className="mt-4 flex flex-wrap items-center gap-3 bg-white/20 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/20 text-white shadow-lg">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={15} className="text-yellow-300 animate-pulse" />
+                          <span className="text-[10px] font-black uppercase tracking-wider">Live ETA: <strong className="text-white font-mono text-xs underline decoration-yellow-300 decoration-2">{etaFormatted}</strong></span>
+                        </div>
+                        <span className="text-white/40">•</span>
+                        <span className="text-[10px] font-bold tracking-wide">{travelTimeMins} mins ({distanceKm.toFixed(1)} km @ 26 km/h traffic)</span>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="grid grid-cols-4 gap-2 mt-6">
+                     <button onClick={handleNavigate} className="bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
                         <ExternalLink size={14} /> Navigate
                      </button>
-                     <button onClick={handleCallPatient} className="flex-1 bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
+                     <button onClick={handleOpenMiniMap} className="bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
+                        <Route size={14} /> Mini-Map
+                     </button>
+                     <button onClick={handleCallPatient} className="bg-white/20 hover:bg-white/30 backdrop-blur-md p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all">
                         <Phone size={14} /> Call
+                     </button>
+                     <button onClick={handleTogglePriority} className={`p-3 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-md ${activeCall.isPriority ? 'bg-orange-500 text-white shadow-lg ring-2 ring-orange-300 animate-pulse' : 'bg-white/20 hover:bg-white/30 text-white'}`}>
+                        <Zap size={14} className={activeCall.isPriority ? 'fill-white' : ''} /> {activeCall.isPriority ? 'Urgent' : 'Priority'}
                      </button>
                   </div>
                </div>
@@ -1348,6 +1419,102 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
         </div>
       )}
 
+      {showMiniMapModal && activeCall && (() => {
+        const currentLoc = miniMapLocation || getPhleboRefLocation();
+        const destLoc = activeCall.destination;
+        const distanceKm = calculateDistance(currentLoc, destLoc);
+        
+        return (
+          <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-2xl z-[500] flex items-center justify-center p-4 sm:p-6" onClick={() => setShowMiniMapModal(false)}>
+            <div className="bg-slate-950 text-white w-full max-w-2xl rounded-[3rem] p-8 sm:p-10 flex flex-col gap-6 shadow-2xl border-2 border-brand-purple/40 animate-slide-up relative overflow-hidden" onClick={e => e.stopPropagation()}>
+               <div className="absolute top-0 right-0 w-32 h-32 bg-brand-purple/20 rounded-bl-full pointer-events-none blur-2xl" />
+               
+               <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <div className="flex items-center gap-3">
+                     <div className="w-10 h-10 rounded-2xl bg-brand-purple/20 border border-brand-purple/40 flex items-center justify-center text-brand-purple">
+                        <Route size={20} className="text-purple-400" />
+                     </div>
+                     <div>
+                        <h3 className="font-black text-base uppercase tracking-wider">Live Path & Mini-Map</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Route to {activeCall.patientName}</p>
+                     </div>
+                  </div>
+                  <button onClick={() => setShowMiniMapModal(false)} className="bg-white/10 p-2.5 rounded-xl hover:bg-white/20 text-slate-300 transition-all">
+                     <X size={18} />
+                  </button>
+               </div>
+
+               {/* Simulated Map Visualizer */}
+               <div className="bg-slate-900/90 rounded-[2.5rem] border border-white/10 p-6 relative overflow-hidden flex flex-col items-center justify-center min-h-[240px] shadow-inner">
+                  {/* Grid background effect */}
+                  <div className="absolute inset-0 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:16px_16px] opacity-30" />
+                  
+                  <div className="relative z-10 w-full flex flex-col sm:flex-row items-center justify-between gap-6 py-4 px-2">
+                     {/* Origin Node */}
+                     <div className="flex flex-col items-center text-center max-w-[200px]">
+                        <div className="relative mb-3">
+                           <div className="absolute -inset-2 bg-brand-purple rounded-full animate-ping opacity-40" />
+                           <div className="w-14 h-14 bg-brand-purple text-white rounded-2xl shadow-xl flex items-center justify-center relative z-10 border-2 border-white/20">
+                              <User size={24} />
+                           </div>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-brand-purple bg-brand-purple/20 px-2.5 py-1 rounded-md border border-brand-purple/30 mb-1">
+                           Phlebo GPS Node
+                        </span>
+                        <p className="text-xs font-bold text-slate-200 truncate w-full">{currentLoc.address || 'Live Location'}</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">{currentLoc.lat.toFixed(4)}, {currentLoc.lng.toFixed(4)}</p>
+                     </div>
+
+                     {/* Distance Badge & Connecting Line */}
+                     <div className="flex flex-col items-center justify-center px-4">
+                        <div className="px-4 py-2 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 shadow-lg flex items-center gap-2 mb-2">
+                           <Navigation size={14} className="text-green-400 animate-pulse" />
+                           <span className="text-xs font-black font-mono text-green-300">{distanceKm} KM</span>
+                        </div>
+                        <div className="w-24 sm:w-32 h-0.5 bg-gradient-to-r from-brand-purple via-green-400 to-blue-500 rounded-full relative">
+                           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full animate-ping" />
+                        </div>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-400 mt-2">Direct Vector</span>
+                     </div>
+
+                     {/* Destination Node */}
+                     <div className="flex flex-col items-center text-center max-w-[200px]">
+                        <div className="relative mb-3">
+                           <div className="absolute -inset-2 bg-blue-500 rounded-full animate-ping opacity-30" />
+                           <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl shadow-xl flex items-center justify-center relative z-10 border-2 border-white/20">
+                              <MapPin size={24} />
+                           </div>
+                        </div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-400 bg-blue-500/20 px-2.5 py-1 rounded-md border border-blue-500/30 mb-1">
+                           Patient Destination
+                        </span>
+                        <p className="text-xs font-bold text-slate-200 truncate w-full">{destLoc.address}</p>
+                        <p className="text-[10px] font-mono text-slate-400 mt-0.5">{destLoc.lat.toFixed(4)}, {destLoc.lng.toFixed(4)}</p>
+                     </div>
+                  </div>
+               </div>
+
+               <div className="flex items-center justify-between gap-4 pt-2">
+                  <button 
+                     onClick={handleRefreshMiniMapGps}
+                     disabled={isRefreshingGps}
+                     className="flex-1 bg-white/10 hover:bg-white/20 text-white py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center justify-center gap-2 border border-white/10 active:scale-95 disabled:opacity-50"
+                  >
+                     <RefreshCw size={14} className={isRefreshingGps ? 'animate-spin' : ''} />
+                     {isRefreshingGps ? 'Acquiring GPS...' : 'Refresh GPS Location'}
+                  </button>
+                  <button 
+                     onClick={() => setShowMiniMapModal(false)}
+                     className="bg-brand-purple hover:bg-brand-purple/90 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg transition-all active:scale-95"
+                  >
+                     Done
+                  </button>
+               </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showUpiModal && (
         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-2xl z-[400] flex items-center justify-center p-6" onClick={() => setShowUpiModal(false)}>
           <div className="bg-white w-full max-sm rounded-[4rem] p-12 flex flex-col items-center gap-8 shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
@@ -1455,6 +1622,24 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
     };
   }, [filteredHistory]);
 
+  const chartData = useMemo(() => {
+    const map: Record<string, { date: string; earnings: number; revenue: number; calls: number }> = {};
+    const sorted = [...filteredHistory].sort((a, b) => a.timestamp - b.timestamp);
+    
+    sorted.forEach(h => {
+      const d = new Date(h.timestamp);
+      const dateKey = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      if (!map[dateKey]) {
+        map[dateKey] = { date: dateKey, earnings: 0, revenue: 0, calls: 0 };
+      }
+      map[dateKey].earnings += Number(h.incentive) || 0;
+      map[dateKey].revenue += Number(h.revenue) || 0;
+      map[dateKey].calls += 1;
+    });
+
+    return Object.values(map);
+  }, [filteredHistory]);
+
   const handleExportPDF = () => {
     const doc = new jsPDF() as any;
     doc.setFontSize(18);
@@ -1517,6 +1702,63 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earnings</p>
             <p className="text-3xl font-black text-brand-purple">₹{stats.totalIncentive.toLocaleString()}</p>
           </div>
+        </div>
+
+        {/* Recharts Daily Earnings Trend Line Chart */}
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <TrendingUp size={16} className="text-brand-purple" /> Daily Earnings Trend
+              </h4>
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-wider">Earnings (₹) over selected time range</p>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest bg-brand-purple/10 text-brand-purple px-3 py-1 rounded-full border border-brand-purple/20">
+              {reportRange}
+            </span>
+          </div>
+
+          {chartData.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
+              <BarChart3 size={32} className="opacity-40" />
+              <p className="text-xs font-bold uppercase tracking-wider">No earnings data recorded for this range</p>
+            </div>
+          ) : (
+            <div className="h-72 w-full pt-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#64748b" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={{ stroke: '#cbd5e1' }} 
+                  />
+                  <YAxis 
+                    stroke="#64748b" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={{ stroke: '#cbd5e1' }}
+                    tickFormatter={(value) => `₹${value}`}
+                  />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '1rem', color: '#fff', fontSize: '12px', padding: '10px 14px' }}
+                    formatter={(value: any) => [`₹${Number(value).toLocaleString()}`, 'Earnings']}
+                    labelStyle={{ fontWeight: 'bold', color: '#c084fc', marginBottom: '4px' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="earnings" 
+                    stroke="#8b5cf6" 
+                    strokeWidth={3} 
+                    dot={{ fill: '#8b5cf6', stroke: '#fff', strokeWidth: 2, r: 5 }}
+                    activeDot={{ r: 8, fill: '#7c3aed', stroke: '#fff', strokeWidth: 2 }} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         <button

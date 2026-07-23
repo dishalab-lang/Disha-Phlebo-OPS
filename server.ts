@@ -838,6 +838,14 @@ async function startServer() {
            <p>Thank you for choosing Disha Phlebo.</p>`
         ).catch(err => console.error("Failed to send completion email:", err));
       }
+    } else if (updates.status === 'CANCELLED') {
+      io.emit('notification', { message: `Call ${id} has been cancelled`, type: 'info' });
+      if (updatedCall.patientPhone) {
+        sendSMS(
+          updatedCall.patientPhone,
+          `Dear ${updatedCall.patientName}, your collection request (Booking ID: ${id}) has been cancelled. - Disha Phlebo`
+        ).catch(err => console.error("Failed to send cancellation SMS:", err));
+      }
     }
 
     res.json({ success: true });

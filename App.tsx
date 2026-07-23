@@ -634,7 +634,7 @@ const App: React.FC = () => {
         update.acceptedLocation = phlebo.currentLocation;
       }
     }
-    if (status === CallStatus.PENDING) {
+    if (status === CallStatus.PENDING || status === CallStatus.CANCELLED) {
       update.assignedPhleboId = null;
       update.acceptedAt = null;
       update.arrivedLocation = null;
@@ -643,6 +643,11 @@ const App: React.FC = () => {
       update.sampleType = null;
       update.voiceNote = null;
       update.acceptedLocation = null;
+      if (status === CallStatus.CANCELLED) {
+        setToast({ message: `Call ${callId} has been cancelled`, type: 'info' });
+      } else {
+        setToast({ message: `Call ${callId} has been redeployed to PENDING`, type: 'success' });
+      }
     }
     if (status === CallStatus.COLLECTED) {
       update.collectedAt = Date.now();
@@ -1275,7 +1280,7 @@ const App: React.FC = () => {
         <button onClick={handleLogout} className="text-slate-300 hover:text-red-500 p-3 bg-slate-50 rounded-2xl"><ShieldAlert size={20} /></button>
       </header>
 
-      <main className="flex-1 p-6 lg:p-10 overflow-auto pb-32">
+      <main className="flex-1 p-4 sm:p-6 lg:p-10 overflow-auto pb-24 md:pb-28">
         {activeRoute === 'FIELD' && (
           <PhleboApp 
             currentUser={currentUser} 
@@ -1348,20 +1353,20 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 h-24 flex items-center justify-around z-[100] pb-safe shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 h-14 md:h-16 flex items-center justify-around z-[100] pb-safe shadow-lg px-2">
         {['ADMIN', 'SYSTEM_ADMIN', 'EMPLOYEE', 'DEVELOPER'].includes(currentUser.role) && (
-          <button onClick={() => setActiveRoute('FIELD')} className={`flex flex-col items-center gap-1 ${activeRoute === 'FIELD' ? 'text-brand-purple' : 'text-slate-300'}`}>
-            <Truck size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Ops</span>
+          <button onClick={() => setActiveRoute('FIELD')} className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 ${activeRoute === 'FIELD' ? 'text-brand-purple font-black' : 'text-slate-400 hover:text-slate-600'}`}>
+            <Truck size={18} /><span className="text-[9px] font-bold uppercase tracking-wider">Ops</span>
           </button>
         )}
         {['ADMIN', 'SYSTEM_ADMIN', 'RECEPTION', 'DEVELOPER', 'DISPATCHER'].includes(currentUser.role) && (
-          <button onClick={() => setActiveRoute('DISPATCH')} className={`flex flex-col items-center gap-1 ${activeRoute === 'DISPATCH' ? 'text-brand-purple' : 'text-slate-300'}`}>
-            <LayoutGrid size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Dispatch</span>
+          <button onClick={() => setActiveRoute('DISPATCH')} className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 ${activeRoute === 'DISPATCH' ? 'text-brand-purple font-black' : 'text-slate-400 hover:text-slate-600'}`}>
+            <LayoutGrid size={18} /><span className="text-[9px] font-bold uppercase tracking-wider">Dispatch</span>
           </button>
         )}
         {['ADMIN', 'SYSTEM_ADMIN', 'ACCOUNT', 'DEVELOPER'].includes(currentUser.role) && (
-          <button onClick={() => setActiveRoute('ADMIN')} className={`flex flex-col items-center gap-1 ${activeRoute === 'ADMIN' ? 'text-brand-purple' : 'text-slate-300'}`}>
-            <Monitor size={24} /><span className="text-[9px] font-black uppercase tracking-widest">Enterprise</span>
+          <button onClick={() => setActiveRoute('ADMIN')} className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all active:scale-95 ${activeRoute === 'ADMIN' ? 'text-brand-purple font-black' : 'text-slate-400 hover:text-slate-600'}`}>
+            <Monitor size={18} /><span className="text-[9px] font-bold uppercase tracking-wider">Enterprise</span>
           </button>
         )}
       </nav>
