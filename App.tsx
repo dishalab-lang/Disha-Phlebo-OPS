@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { 
-  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink, Phone, X
+  LogIn, Lock, User, ShieldCheck, PlayCircle, Fingerprint, ShieldAlert, Clock, Smartphone, Download, Monitor, Share2, Truck, Plus, Send, LayoutGrid, BarChart3, Settings as SettingsIcon, Wallet, Info, MapPin, Navigation, ExternalLink, Phone, X, Copy, CheckCircle2, Radio
 } from 'lucide-react';
 import { 
   CallStatus, CollectionCall, Phlebotomist, 
-  SystemConfig, CallMetrics, Location, CallType, PaymentMode, TatBracket, DiagnosticTest, StaffRole, UserStatus, Appointment, DiagnosticLab, Hospital
+  SystemConfig, CallMetrics, Location, CallType, PaymentMode, TatBracket, DiagnosticTest, StaffRole, UserStatus, Appointment, DiagnosticLab, Hospital, EmergencyAlert
 } from './types';
 import { INITIAL_CONFIG, MOCK_TESTS, MOCK_LABS, MOCK_HOSPITALS } from './mockData';
 import { LogoBird } from './LogoBird';
@@ -145,7 +145,8 @@ const App: React.FC = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [performanceHistory, setPerformanceHistory] = useState<CallMetrics[]>([]);
   const [allPhlebos, setAllPhlebos] = useState<Phlebotomist[]>([]);
-  const [emergencies, setEmergencies] = useState<any[]>([]);
+  const [emergencies, setEmergencies] = useState<EmergencyAlert[]>([]);
+  const [copiedAlertId, setCopiedAlertId] = useState<string | null>(null);
 
   const [currentUser, setCurrentUser] = useState<Phlebotomist | null>(() => {
     return null;
@@ -463,6 +464,17 @@ const App: React.FC = () => {
     
     socket.on('user_updated', (updates) => {
       setAllPhlebos(prev => prev.map(p => p.id === updates.id ? { ...p, ...updates } : p));
+      if (updates.currentLocation) {
+        setEmergencies(prev => prev.map(e => e.phleboId === updates.id ? {
+          ...e,
+          location: updates.currentLocation,
+          mapsUrl: `https://www.google.com/maps/search/?api=1&query=${updates.currentLocation.lat},${updates.currentLocation.lng}`
+        } : e));
+      }
+    });
+
+    socket.on('emergency_updated', (updatedAlert) => {
+      setEmergencies(prev => prev.map(e => e.id === updatedAlert.id ? updatedAlert : e));
     });
     
     socket.on('metrics_updated', (metric) => {
@@ -1224,21 +1236,72 @@ const App: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">CURRENT GPS LOCATION</span>
-                    <p className="text-xs font-mono font-bold mt-0.5">{alert.location.lat.toFixed(6)}, {alert.location.lng.toFixed(6)}</p>
+                    <p className="text-xs font-mono font-bold mt-0.5 text-red-400">{alert.location.lat.toFixed(6)}, {alert.location.lng.toFixed(6)}</p>
                     <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase">{alert.location.address || 'Live Signal'}</p>
                   </div>
-                  <div className="flex items-center gap-2 pt-2">
+
+                  {/* Shared Real-Time Link in Emergency Alert Payload */}
+                  <div className="bg-slate-900/90 border border-red-500/40 rounded-2xl p-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-red-400 flex items-center gap-1.5">
+                        <Radio size={10} className="animate-pulse text-red-500" />
+                        SHARED REAL-TIME MAP LINK
+                      </span>
+                      <span className="text-[8px] font-bold text-emerald-400 uppercase bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                        Live Tracking
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 overflow-hidden">
+                      <span className="text-[10px] font-mono text-slate-300 truncate flex-1 select-all">
+                        {alert.trackingUrl || `${window.location.origin}/?trackPhlebo=${alert.phleboId}&sos=true`}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const link = alert.trackingUrl || `${window.location.origin}/?trackPhlebo=${alert.phleboId}&sos=true`;
+                          navigator.clipboard.writeText(link);
+                          setCopiedAlertId(alert.id);
+                          setTimeout(() => setCopiedAlertId(null), 2500);
+                        }}
+                        className="bg-red-600 hover:bg-red-500 text-white px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all active:scale-95 shadow-md"
+                        title="Copy Real-Time Link"
+                      >
+                        {copiedAlertId === alert.id ? (
+                          <>
+                            <CheckCircle2 size={12} className="text-emerald-300" />
+                            <span>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} />
+                            <span>Copy Link</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 flex-wrap sm:flex-nowrap">
                     <a 
                       href={`tel:${alert.phone}`}
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-red-500 transition-all active:scale-95 shadow-md"
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-red-500 transition-all active:scale-95 shadow-md"
                     >
-                      <Phone size={14} /> CALL PHLEBO
+                      <Phone size={14} /> CALL
                     </a>
                     <a 
-                      href={`https://www.google.com/maps/search/?api=1&query=${alert.location.lat},${alert.location.lng}`}
+                      href={alert.trackingUrl || `${window.location.origin}/?trackPhlebo=${alert.phleboId}&sos=true`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition-all active:scale-95"
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-slate-700 transition-all active:scale-95"
+                    >
+                      <ExternalLink size={14} /> TRACK LIVE
+                    </a>
+                    <a 
+                      href={alert.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${alert.location.lat},${alert.location.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-slate-700 transition-all active:scale-95"
+                      title="Open Google Maps"
                     >
                       <MapPin size={14} /> MAP
                     </a>
@@ -1255,7 +1318,7 @@ const App: React.FC = () => {
                           console.error("Failed to resolve emergency:", e);
                         }
                       }}
-                      className="bg-brand-green hover:bg-green-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center transition-all active:scale-95"
+                      className="bg-brand-green hover:bg-green-700 text-white font-black text-[10px] uppercase tracking-widest py-3 px-3 rounded-xl flex items-center justify-center transition-all active:scale-95"
                     >
                       RESOLVE
                     </button>

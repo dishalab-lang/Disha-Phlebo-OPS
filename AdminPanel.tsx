@@ -956,7 +956,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight"><Settings className="text-brand-purple" /> Enterprise Standards</h3>
                 <div className="space-y-8">
-                  <div className="grid grid-cols-3 gap-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Within TAT Rate (₹/KM)</label>
                         <input type="number" value={editedConfig.withinTatRate} onChange={e => setEditedConfig({...editedConfig, withinTatRate: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
@@ -968,6 +968,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                      <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Base Incentive (₹)</label>
                         <input type="number" value={editedConfig.baseIncentive} onChange={e => setEditedConfig({...editedConfig, baseIncentive: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Daily Quota (Calls/Day)</label>
+                        <input type="number" min={1} value={editedConfig.dailyCallQuota || 10} onChange={e => setEditedConfig({...editedConfig, dailyCallQuota: e.target.value as any})} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl font-black text-lg text-brand-purple outline-none" />
                      </div>
                   </div>
                   <div>
@@ -981,6 +985,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                         withinTatRate: Number(editedConfig.withinTatRate),
                         outsideTatRate: Number(editedConfig.outsideTatRate),
                         baseIncentive: Number(editedConfig.baseIncentive),
+                        dailyCallQuota: Number(editedConfig.dailyCallQuota || 10),
                         tatBrackets: (editedConfig.tatBrackets || []).map(b => ({ maxKm: Number(b.maxKm), tatMinutes: Number(b.tatMinutes) }))
                       };
                       onUpdateConfig(parsedConfig); 

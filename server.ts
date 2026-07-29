@@ -880,6 +880,13 @@ async function startServer() {
 
     if (updates.currentLocation) {
         updates.lastActive = Date.now();
+        // Update location for active emergency if exists
+        const activeAlert = db.emergencies.find((e: any) => e.phleboId === id && e.status === 'ACTIVE');
+        if (activeAlert) {
+          activeAlert.location = updates.currentLocation;
+          activeAlert.mapsUrl = `https://www.google.com/maps/search/?api=1&query=${updates.currentLocation.lat},${updates.currentLocation.lng}`;
+          io.emit('emergency_updated', activeAlert);
+        }
     }
     if (updates.isAvailable !== undefined) {
       updates.isAvailable = updates.isAvailable ? true : false;
@@ -984,7 +991,7 @@ async function startServer() {
   });
 
   app.post("/api/emergency", async (req, res) => {
-    const { phleboId, location } = req.body;
+    const { phleboId, location, trackingUrl: clientTrackingUrl } = req.body;
     if (!phleboId) {
       return res.status(400).json({ success: false, message: "Missing phleboId" });
     }
@@ -994,12 +1001,18 @@ async function startServer() {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    const loc = location || user.currentLocation || { lat: 0, lng: 0, address: "Live GPS Signal" };
+    const trackingUrl = clientTrackingUrl || `${req.protocol}://${req.get('host')}?trackPhlebo=${phleboId}&sos=true`;
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
+
     const emergencyAlert = {
       id: `ALERT-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       phleboId,
       phleboName: user.name,
       phone: user.phone || 'N/A',
-      location: location || user.currentLocation || { lat: 0, lng: 0, address: "Live GPS Signal" },
+      location: loc,
+      trackingUrl,
+      mapsUrl,
       timestamp: Date.now(),
       status: 'ACTIVE'
     };
@@ -1020,7 +1033,7 @@ async function startServer() {
 
     // Emit socket event to all clients
     io.emit('emergency_alert', emergencyAlert);
-    io.emit('notification', { message: `🚨 EMERGENCY ALERT: Phlebotomist ${user.name} requires assistance!`, type: 'info' });
+    io.emit('notification', { message: `🚨 EMERGENCY ALERT: Phlebotomist ${user.name} requires assistance! Shared tracking link active.`, type: 'info' });
 
     res.json({ success: true, alert: emergencyAlert });
   });

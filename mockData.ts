@@ -14,6 +14,7 @@ export const INITIAL_CONFIG: SystemConfig = {
   geofenceRadiusMeters: 5000,
   flatCollectionCharge: 100,
   baseIncentive: 20,
+  dailyCallQuota: 10,
 };
 
 export const MOCK_TESTS: DiagnosticTest[] = [

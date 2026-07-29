@@ -7,7 +7,7 @@ import {
   RefreshCw, FileCheck, Zap, ShieldCheck, ShieldAlert, History, ClipboardList, CalendarDays, PlusCircle, User, Calendar, CheckCircle2, XCircle, Maximize2, Ban, TrendingUp, CheckSquare,
   UserX, MapPinOff, Clock4, ShieldX, Info, AlertTriangle, ChevronRight, Fingerprint,
   Lock, Plus, Smartphone, LocateFixed, Share2, Building2, Timer, FileText, Shield, Route, Database, Download, UserCircle, Target, Search, ExternalLink, Radar,
-  Mic, Square, Play, Volume2, CreditCard, Link, BarChart3, Truck, Battery, BatteryCharging
+  Mic, Square, Play, Volume2, CreditCard, Link, BarChart3, Truck, Battery, BatteryCharging, Copy, Calculator, Sparkles, Coins, Percent
 } from 'lucide-react';
 import { isWithinGeofence, getCurrentLocation, calculateDistance } from './geoUtils';
 
@@ -16,6 +16,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { indexedDbHelper } from './indexedDbHelper';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { TaskMapVisualizer } from './TaskMapVisualizer';
 
 interface PhleboAppProps {
   currentUser: Phlebotomist;
@@ -100,6 +101,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   }, [calls]);
 
   const effectiveCalls = calls && calls.length > 0 ? calls : indexedDbCalls;
+  const assignedLab = labs.find(l => l.id === currentUser?.labId) || labs[0] || null;
 
   const getPhleboRefLocation = (): Location => {
     // Find phlebotomist's assigned HUB/lab
@@ -290,6 +292,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   const [isPressing, setIsPressing] = useState(false);
   const [pressProgress, setPressProgress] = useState(0); // 0 to 100
   const [isSosActive, setIsSosActive] = useState(false);
+  const [copiedSosLink, setCopiedSosLink] = useState(false);
   const pressTimerRef = useRef<any>(null);
   const progressIntervalRef = useRef<any>(null);
 
@@ -353,12 +356,14 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
           }
         }
 
+        const liveTrackingUrl = `${window.location.origin}/?trackPhlebo=${currentUser.id}&sos=true`;
         await fetch('/api/emergency', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             phleboId: currentUser.id,
-            location: coords
+            location: coords,
+            trackingUrl: liveTrackingUrl
           })
         });
 
@@ -476,6 +481,36 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
       totalTrips: myTrips.length
     };
   }, [myTrips]);
+
+  const dailyCompletedCallsCount = useMemo(() => {
+    const todayStr = new Date().toDateString();
+
+    const completedFromCalls = effectiveCalls.filter(c => {
+      if (c.assignedPhleboId !== currentUser?.id) return false;
+      const isDone = c.status === CallStatus.COMPLETED || c.status === CallStatus.DELIVERED || c.status === CallStatus.RECEIVED_AT_LAB;
+      if (!isDone) return false;
+      const t = c.handoverAt || c.receivedAt || c.collectedAt || c.placedAt;
+      return t ? new Date(t).toDateString() === todayStr : true;
+    });
+
+    const completedFromHistory = history.filter(h => {
+      if (h.phleboId !== currentUser?.id) return false;
+      if (h.status !== 'COMPLETED') return false;
+      return new Date(h.timestamp).toDateString() === todayStr;
+    });
+
+    const uniqueIds = new Set([
+      ...completedFromCalls.map(c => c.id),
+      ...completedFromHistory.map(h => h.callId)
+    ]);
+
+    return Math.max(
+      uniqueIds.size,
+      completedFromCalls.length,
+      completedFromHistory.length,
+      currentUser?.completedCalls || 0
+    );
+  }, [effectiveCalls, history, currentUser]);
 
   useEffect(() => { 
     if (myActiveCalls.length > 0 && !selectedActiveCallId) {
@@ -798,6 +833,166 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
         )}
       </div>
 
+      {/* Active Emergency SOS Broadcast Banner */}
+      {isSosActive && (
+        <div className="bg-slate-950 border-2 border-red-500 rounded-3xl p-5 text-white shadow-2xl animate-pulse-slow relative overflow-hidden z-30 flex flex-col gap-4">
+          <div className="absolute top-0 right-0 w-28 h-28 bg-red-500/10 rounded-bl-full pointer-events-none flex items-center justify-center">
+            <ShieldAlert size={32} className="text-red-500 animate-bounce" />
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-4 w-4 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-600"></span>
+              </span>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-red-500 flex items-center gap-1.5">
+                    🚨 EMERGENCY SOS ACTIVE
+                  </h3>
+                  <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[8px] font-black uppercase px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Radar size={10} className="animate-spin text-red-400" /> Live GPS Broadcast
+                  </span>
+                </div>
+                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-0.5">
+                  Your moving location is being continuously broadcasted live to dispatchers.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleCancelSos}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider border border-red-500 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md shrink-0"
+            >
+              <X size={14} />
+              <span>Stand Down / Cancel SOS</span>
+            </button>
+          </div>
+
+          {/* Shared Real-Time Link & GPS Details */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-col gap-1.5">
+              <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Current GPS Location</span>
+              <p className="text-xs font-mono font-bold text-emerald-400">
+                {getPhleboRefLocation().lat.toFixed(6)}, {getPhleboRefLocation().lng.toFixed(6)}
+              </p>
+              <p className="text-[9px] text-slate-400 font-bold uppercase">{getPhleboRefLocation().address || 'Live Signal'}</p>
+            </div>
+
+            <div className="bg-slate-900/90 border border-red-500/40 rounded-2xl p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[8px] font-black uppercase tracking-widest text-red-400">Shared Real-Time Link</span>
+                <span className="text-[8px] font-bold text-emerald-400 uppercase">Live Map Link Active</span>
+              </div>
+              
+              <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 overflow-hidden">
+                <span className="text-[10px] font-mono text-slate-300 truncate flex-1 select-all">
+                  {`${window.location.origin}/?trackPhlebo=${currentUser.id}&sos=true`}
+                </span>
+                <button
+                  onClick={() => {
+                    const shareUrl = `${window.location.origin}/?trackPhlebo=${currentUser.id}&sos=true`;
+                    navigator.clipboard.writeText(shareUrl);
+                    setCopiedSosLink(true);
+                    setTimeout(() => setCopiedSosLink(false), 2500);
+                  }}
+                  className="bg-red-600 hover:bg-red-500 text-white px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 transition-all active:scale-95 shadow-md"
+                  title="Copy Shared Live Link"
+                >
+                  {copiedSosLink ? (
+                    <>
+                      <CheckCircle2 size={12} className="text-emerald-300" />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={12} />
+                      <span>Copy Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Daily Target Call Quota Visual Progress Bar */}
+      {(() => {
+        const targetQuota = config.dailyCallQuota || 10;
+        const quotaPercentage = Math.min(Math.round((dailyCompletedCallsCount / targetQuota) * 100), 100);
+        const remainingCalls = Math.max(targetQuota - dailyCompletedCallsCount, 0);
+        const isQuotaAchieved = dailyCompletedCallsCount >= targetQuota;
+
+        return (
+          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2.5 rounded-2xl flex items-center justify-center shrink-0 ${isQuotaAchieved ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-purple-50 text-brand-purple border border-purple-100'}`}>
+                  <Target size={22} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Daily Call Target Quota
+                    </h3>
+                    {isQuotaAchieved ? (
+                      <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                        <CheckCircle2 size={10} className="text-emerald-600" /> Quota Achieved!
+                      </span>
+                    ) : (
+                      <span className="bg-purple-100 text-brand-purple text-[8px] font-black uppercase px-2 py-0.5 rounded-full border border-purple-200">
+                        In Progress
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                    {isQuotaAchieved
+                      ? `Target reached! (${dailyCompletedCallsCount}/${targetQuota} calls completed today)`
+                      : `${remainingCalls} more call${remainingCalls === 1 ? '' : 's'} to target (${dailyCompletedCallsCount}/${targetQuota} calls)`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-right shrink-0">
+                <div className="text-lg sm:text-xl font-black text-slate-900 font-mono">
+                  {dailyCompletedCallsCount} <span className="text-xs text-slate-400 font-normal">/ {targetQuota}</span>
+                </div>
+                <div className="text-[9px] font-black text-brand-purple uppercase tracking-wider">
+                  {quotaPercentage}% Completed
+                </div>
+              </div>
+            </div>
+
+            {/* Visual Progress Bar Track and Animated Fill */}
+            <div className="space-y-1.5">
+              <div className="overflow-hidden h-3.5 flex rounded-full bg-slate-100 border border-slate-200/70 p-0.5">
+                <div
+                  style={{ width: `${quotaPercentage}%` }}
+                  className={`flex flex-col text-center whitespace-nowrap text-white justify-center rounded-full transition-all duration-700 ease-out ${
+                    isQuotaAchieved
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                      : 'bg-gradient-to-r from-brand-purple via-purple-600 to-indigo-600'
+                  }`}
+                />
+              </div>
+
+              {/* Milestone Markers */}
+              <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest px-1">
+                <span className={quotaPercentage >= 0 ? 'text-slate-500 font-bold' : 'text-slate-300'}>0%</span>
+                <span className={quotaPercentage >= 25 ? 'text-brand-purple font-black' : 'text-slate-300'}>25%</span>
+                <span className={quotaPercentage >= 50 ? 'text-brand-purple font-black' : 'text-slate-300'}>50%</span>
+                <span className={quotaPercentage >= 75 ? 'text-brand-purple font-black' : 'text-slate-300'}>75%</span>
+                <span className={quotaPercentage >= 100 ? 'text-emerald-600 font-black flex items-center gap-0.5' : 'text-slate-300'}>
+                  Target ({targetQuota}) {isQuotaAchieved && '✓'}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="flex bg-white p-2 rounded-2xl border shadow-sm sticky top-0 z-[70] gap-1 backdrop-blur-md">
         <button onClick={() => setActiveTab('TASKS')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'TASKS' ? 'bg-brand-purple text-white shadow-md' : 'text-slate-400'}`}>
           Field Task
@@ -822,6 +1017,16 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
              </div>
              <button onClick={() => setIsSimulatingGps(!isSimulatingGps)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase border ${isSimulatingGps ? 'bg-brand-purple text-white' : 'bg-slate-50 text-slate-500'}`}>{isSimulatingGps ? 'Stop Sim' : 'Start Sim'}</button>
           </div>
+
+          <TaskMapVisualizer
+            phleboLocation={getPhleboRefLocation()}
+            myActiveCalls={myActiveCalls}
+            availableCalls={availableCalls}
+            selectedActiveCallId={selectedActiveCallId || (activeCall ? activeCall.id : null)}
+            onSelectCall={(id) => setSelectedActiveCallId(id)}
+            onAcceptCall={(id) => handleAccept(id)}
+            phleboLab={assignedLab}
+          />
 
           {myActiveCalls.length > 0 && (
             <div className="space-y-4">
@@ -1533,7 +1738,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
         </div>
       )}
       {activeTab === 'REPORTS' && (
-        <ReportsView history={history} currentUser={currentUser} />
+        <ReportsView history={history} currentUser={currentUser} config={config} />
       )}
 
       {/* Floating Action Button (Emergency SOS) */}
@@ -1593,7 +1798,7 @@ const PhleboApp: React.FC<PhleboAppProps> = ({
   );
 };
 
-const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist }> = ({ history, currentUser }) => {
+const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist, config?: SystemConfig }> = ({ history, currentUser, config }) => {
   const [reportRange, setReportRange] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY' | 'ALL'>('DAILY');
 
   const filteredHistory = useMemo(() => {
@@ -1621,6 +1826,67 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
       totalDistance: filteredHistory.reduce((sum, h) => sum + (Number(h.distance) || 0), 0),
     };
   }, [filteredHistory]);
+
+  const userHistory = useMemo(() => history.filter(h => h.phleboId === currentUser.id), [history, currentUser.id]);
+
+  // Historical velocity & TAT trends for baseline defaults
+  const historicalVelocity = useMemo(() => {
+    if (userHistory.length === 0) return 10;
+    const uniqueDays = new Set(userHistory.map(h => new Date(h.timestamp).toDateString())).size || 1;
+    return Math.max(1, Math.round(userHistory.length / uniqueDays));
+  }, [userHistory]);
+
+  const historicalTatAdherence = useMemo(() => {
+    if (userHistory.length === 0) return 90;
+    const withinCount = userHistory.filter(h => (h.tatStatus || 'WITHIN_TAT') === 'WITHIN_TAT').length;
+    return Math.round((withinCount / userHistory.length) * 100);
+  }, [userHistory]);
+
+  // Predictive Calculator state
+  const [velocity, setVelocity] = useState<number>(historicalVelocity || 10);
+  const [tatAdherence, setTatAdherence] = useState<number>(historicalTatAdherence || 90);
+  const [workingDays, setWorkingDays] = useState<number>(26);
+
+  useEffect(() => {
+    if (historicalVelocity) setVelocity(historicalVelocity);
+    if (historicalTatAdherence) setTatAdherence(historicalTatAdherence);
+  }, [historicalVelocity, historicalTatAdherence]);
+
+  // Configuration parameters
+  const baseIncentivePerCall = config?.baseIncentive || 20;
+  const withinTatRateKm = config?.withinTatRate || 10;
+  const outsideTatRateKm = config?.outsideTatRate || 5;
+  const targetQuota = config?.dailyCallQuota || 10;
+
+  const avgKmPerCall = useMemo(() => {
+    if (userHistory.length === 0) return 4.5;
+    const totalDist = userHistory.reduce((acc, h) => acc + (Number(h.distance) || 0), 0);
+    return Math.max(1, Math.round((totalDist / userHistory.length) * 10) / 10);
+  }, [userHistory]);
+
+  // Estimated Incentive Calculation
+  const estWithinTatEarnings = baseIncentivePerCall + (avgKmPerCall * withinTatRateKm);
+  const estOutsideTatEarnings = baseIncentivePerCall + (avgKmPerCall * outsideTatRateKm);
+
+  const dailyWithinCalls = velocity * (tatAdherence / 100);
+  const dailyOutsideCalls = velocity * (1 - (tatAdherence / 100));
+
+  const isQuotaReached = velocity >= targetQuota;
+  const quotaBonusMultiplier = isQuotaReached ? 1.15 : 1.0; // 15% quota boost if daily velocity >= targetQuota
+
+  const estimatedDailyIncentive = Math.round(
+    ((dailyWithinCalls * estWithinTatEarnings) + (dailyOutsideCalls * estOutsideTatEarnings)) * quotaBonusMultiplier
+  );
+
+  const estimatedMonthlyIncentive = estimatedDailyIncentive * workingDays;
+
+  // Baseline Comparison
+  const baselineDailyIncentive = Math.round(
+    ((historicalVelocity * (historicalTatAdherence / 100) * estWithinTatEarnings) +
+     (historicalVelocity * (1 - (historicalTatAdherence / 100)) * estOutsideTatEarnings))
+  );
+  const baselineMonthlyIncentive = baselineDailyIncentive * workingDays;
+  const earningsDiff = estimatedMonthlyIncentive - baselineMonthlyIncentive;
 
   const chartData = useMemo(() => {
     const map: Record<string, { date: string; earnings: number; revenue: number; calls: number }> = {};
@@ -1657,6 +1923,7 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
         ['Total Distance (km)', (Number(stats.totalDistance) || 0).toFixed(2)],
         ['Total Revenue (₹)', stats.totalRevenue.toLocaleString()],
         ['Total Incentive (₹)', stats.totalIncentive.toLocaleString()],
+        ['Projected Monthly Incentive (₹)', estimatedMonthlyIncentive.toLocaleString()],
       ],
       theme: 'grid',
       headStyles: { fillColor: [139, 92, 246] }
@@ -1701,6 +1968,203 @@ const ReportsView: React.FC<{ history: CallMetrics[], currentUser: Phlebotomist 
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earnings</p>
             <p className="text-3xl font-black text-brand-purple">₹{stats.totalIncentive.toLocaleString()}</p>
+          </div>
+        </div>
+
+        {/* Predictive Earnings Calculator */}
+        <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-purple-950 p-6 rounded-3xl border border-purple-900/40 text-white shadow-xl space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-purple-500/20 rounded-xl border border-purple-500/30 text-purple-300">
+                  <Calculator size={18} />
+                </div>
+                <h4 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                  Predictive Earnings Calculator
+                </h4>
+              </div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                Forecast monthly incentive payouts based on completion velocity & TAT compliance
+              </p>
+            </div>
+
+            <div className="bg-purple-900/30 border border-purple-500/40 px-3 py-1.5 rounded-2xl flex items-center gap-2 shrink-0 self-start sm:self-auto">
+              <Sparkles size={14} className="text-amber-400 animate-pulse" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-purple-200">
+                Live Simulator
+              </span>
+            </div>
+          </div>
+
+          {/* Forecast Result Card */}
+          <div className="bg-slate-900/80 border border-purple-500/30 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">
+                PROJECTED MONTHLY INCENTIVE PAYOUT
+              </span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl sm:text-4xl font-black font-mono text-emerald-400 tracking-tight">
+                  ₹{estimatedMonthlyIncentive.toLocaleString()}
+                </span>
+                <span className="text-xs text-slate-400 font-bold uppercase">/ Month</span>
+              </div>
+              <p className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mt-1 flex items-center gap-1.5">
+                <span>≈ ₹{estimatedDailyIncentive.toLocaleString()} / day</span>
+                <span className="text-slate-500">•</span>
+                <span>{workingDays} active days</span>
+              </p>
+            </div>
+
+            {/* Velocity / Quota Status Badge */}
+            <div className="bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 text-right w-full md:w-auto">
+              {earningsDiff > 0 ? (
+                <div className="flex flex-col items-end">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1">
+                    <TrendingUp size={12} /> +₹{earningsDiff.toLocaleString()} / Mo Boost
+                  </span>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    vs baseline velocity ({historicalVelocity} calls/day)
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-end">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-purple-300">
+                    Baseline Pace Active
+                  </span>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {velocity} calls/day at {tatAdherence}% TAT
+                  </p>
+                </div>
+              )}
+
+              {isQuotaReached && (
+                <div className="mt-2 bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[8px] font-black uppercase px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                  <CheckCircle2 size={10} className="text-emerald-400" /> +15% Target Quota Bonus Applied!
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Controls Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+            {/* Control 1: Call Completion Velocity */}
+            <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-2xl space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-300 flex items-center gap-1.5">
+                  <Target size={12} className="text-purple-400" /> Daily Call Velocity
+                </label>
+                <span className="text-xs font-mono font-black text-purple-300 bg-purple-950 px-2 py-0.5 rounded-lg border border-purple-800">
+                  {velocity} calls/day
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min={1}
+                max={30}
+                value={velocity}
+                onChange={e => setVelocity(Number(e.target.value))}
+                className="w-full accent-purple-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+              />
+
+              <div className="flex gap-1 flex-wrap pt-1">
+                {[5, 10, 15, 20, 25].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setVelocity(v)}
+                    className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${velocity === v ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  >
+                    {v} calls
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Control 2: Target TAT Adherence Rate */}
+            <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-2xl space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-300 flex items-center gap-1.5">
+                  <Clock size={12} className="text-emerald-400" /> Target TAT Compliance
+                </label>
+                <span className="text-xs font-mono font-black text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-800">
+                  {tatAdherence}% On-Time
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min={50}
+                max={100}
+                value={tatAdherence}
+                onChange={e => setTatAdherence(Number(e.target.value))}
+                className="w-full accent-emerald-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+              />
+
+              <div className="flex gap-1 flex-wrap pt-1">
+                {[75, 85, 90, 95, 100].map(pct => (
+                  <button
+                    key={pct}
+                    onClick={() => setTatAdherence(pct)}
+                    className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${tatAdherence === pct ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Control 3: Active Working Days */}
+            <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-2xl space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-300 flex items-center gap-1.5">
+                  <CalendarDays size={12} className="text-amber-400" /> Active Days / Month
+                </label>
+                <span className="text-xs font-mono font-black text-amber-300 bg-amber-950 px-2 py-0.5 rounded-lg border border-amber-800">
+                  {workingDays} Days
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min={15}
+                max={30}
+                value={workingDays}
+                onChange={e => setWorkingDays(Number(e.target.value))}
+                className="w-full accent-amber-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+              />
+
+              <div className="flex gap-1 flex-wrap pt-1">
+                {[20, 22, 24, 26, 30].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setWorkingDays(d)}
+                    className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all ${workingDays === d ? 'bg-amber-600 text-white shadow-sm' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  >
+                    {d} days
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Breakdown Rule Footnote */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[9px] font-bold text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <div>
+              <span className="block text-[8px] uppercase text-slate-500 font-black">Base Incentive</span>
+              <span className="text-slate-200 font-mono">₹{baseIncentivePerCall} / call</span>
+            </div>
+            <div>
+              <span className="block text-[8px] uppercase text-slate-500 font-black">Within TAT Rate</span>
+              <span className="text-emerald-400 font-mono">₹{withinTatRateKm}/km (~₹{estWithinTatEarnings.toFixed(0)} total)</span>
+            </div>
+            <div>
+              <span className="block text-[8px] uppercase text-slate-500 font-black">Outside TAT Rate</span>
+              <span className="text-amber-400 font-mono">₹{outsideTatRateKm}/km (~₹{estOutsideTatEarnings.toFixed(0)} total)</span>
+            </div>
+            <div>
+              <span className="block text-[8px] uppercase text-slate-500 font-black">Quota Target</span>
+              <span className="text-purple-300 font-mono">{targetQuota} calls/day (+15%)</span>
+            </div>
           </div>
         </div>
 

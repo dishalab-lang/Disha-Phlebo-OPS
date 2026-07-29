@@ -172,6 +172,7 @@ export interface SystemConfig {
   geofenceRadiusMeters: number;
   flatCollectionCharge: number;
   baseIncentive: number;
+  dailyCallQuota?: number;
   announcement?: string | null;
   securityPin: string;
   exotelApiKey?: string;
@@ -201,3 +202,16 @@ export interface CallMetrics {
   voiceNote?: string;
   status: 'COMPLETED' | 'REJECTED';
 }
+
+export interface EmergencyAlert {
+  id: string;
+  phleboId: string;
+  phleboName: string;
+  phone: string;
+  location: Location;
+  trackingUrl?: string;
+  mapsUrl?: string;
+  timestamp: number;
+  status: 'ACTIVE' | 'RESOLVED';
+}
+
